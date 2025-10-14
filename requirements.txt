@@ -1,0 +1,20 @@
+# Core dependencies
+datasets>=2.14.0
+huggingface-hub>=0.16.0
+torch>=2.0.0
+Pillow>=9.0.0
+numpy>=1.21.0
+
+# Dungeon generation
+# You'll need to install dungeon-eos from the GitHub repository:
+# git clone https://github.com/SkyTemple/dungeon-eos.git
+# cd dungeon-eos && pip install -e .
+
+# Optional: For advanced image processing
+opencv-python>=4.5.0
+matplotlib>=3.5.0
+
+# Development and testing
+pytest>=7.0.0
+black>=22.0.0
+flake8>=5.0.0
