@@ -32,7 +32,7 @@ class MysteryDungeonMapGenerator:
                  output_dir: str = "./maps",
                  image_size: Tuple[int,int] = (256, 256),
                  map_size: Tuple[int,int] = (32, 32),
-                 hf_repo_id: str = "vishnusm/mysterydungeonmaps"):
+                 hf_repo_id: str = "teamgas/mysterydungeondata"):
 
         self.output_dir = Path(output_dir)
         self.image_size = image_size
@@ -55,7 +55,8 @@ class MysteryDungeonMapGenerator:
             'room_count': Value('int64'),
             'corridor_length': Value('float32'),
             'generation_params': Value('string'),
-            'hash': Value('string')
+            'hash': Value('string'),
+            'map_array': Value('string')
         })
 
     def generate_map(self,
@@ -155,7 +156,8 @@ class MysteryDungeonMapGenerator:
                     'room_count': metadata['room_count'],
                     'corridor_length': metadata['corridor_length'],
                     'generation_params': metadata['generation_params'],
-                    'hash': map_hash
+                    'hash': map_hash,
+                    'map_array': map_array
                 }
 
                 dataset_data.append(dataset_entry)
@@ -198,7 +200,7 @@ def main():
         output_dir="./mystery_dungeon_data",
         image_size=(256, 256),
         map_size=(32, 32),
-        hf_repo_id="vishnusm/mysterydungeonmaps"
+        hf_repo_id="teamgas/mysterydungeondata"
     )
 
     dataset = generator.generate_dataset(
@@ -214,7 +216,7 @@ def main():
     train_path = generator.save_dataset(train_dataset, "mystery_dungeon_train")
     val_path = generator.save_dataset(val_dataset, "mystery_dungeon_val")
 
-    generator.upload_to_hub(dataset, "vishnusm/mysterydungeonmaps")
+    generator.upload_to_hub(dataset, "teamgas/mysterydungeondata")
 
     print(f"Dataset generation complete")
     print(f"Total samples: {len(dataset)}")
