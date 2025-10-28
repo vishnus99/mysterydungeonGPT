@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+
+#Project-specific directories
+exported_maps/
+example_map_viewer.py
