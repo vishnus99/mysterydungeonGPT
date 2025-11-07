@@ -21,10 +21,9 @@ sys.path.insert(0, str(project_root))
 
 from src.RandomGen import RandomGenerator
 from src.DungeonAlgorithm import Properties, DungeonData, generate_floor
+from src.playablemap import playablebfs
 
-#Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+
 
 
 class MysteryDungeonMapGenerator: 
@@ -56,7 +55,11 @@ class MysteryDungeonMapGenerator:
             'corridor_length': Value('float32'),
             'generation_params': Value('string'),
             'hash': Value('string'),
-            'map_array': Value('string')
+            'map_array': Value('string'),
+            'player_spawn_x': Value('int64'),
+            'player_spawn_y': Value('int64'),
+            'stairs_spawn_x': Value('int64'),
+            'stairs_spawn_y': Value('int64')
         })
 
     def generate_map(self,
@@ -73,7 +76,42 @@ class MysteryDungeonMapGenerator:
 
         generate_floor()
 
+        player_spawn_x = DungeonData.player_spawn_x
+        player_spawn_y = DungeonData.player_spawn_y
+        stairs_spawn_x = DungeonData.stairs_spawn_x
+        stairs_spawn_y = DungeonData.stairs_spawn_y
+
         map_array = self.tiles_to_numpy(DungeonData.list_tiles)
+
+        corridor_length = 0.0
+        for x in range(56):
+            for y in range(32):
+                tile = DungeonData.list_tiles[x][y]
+                if (tile[0x0] & 0x1) and (tile[0x7] == 0xFF or tile[0x7] == 0xFE):
+                    corridor_length += 1.0
+
+        # Set spawn points as 5x5 areas
+        if player_spawn_x != -1 and player_spawn_y != -1:
+            # Create a 5x5 area around the spawn point
+            for dy in range(-2, 3):  # -2 to +2 (5 pixels)
+                for dx in range(-2, 3):  # -2 to +2 (5 pixels)
+                    ny = player_spawn_y + dy
+                    nx = player_spawn_x + dx
+                    # Only set if within bounds and on a floor tile
+                    if 0 <= ny < map_array.shape[0] and 0 <= nx < map_array.shape[1]:
+                        if map_array[ny, nx] == 1:  # Only overwrite floor tiles
+                            map_array[ny, nx] = 2
+        
+        if stairs_spawn_x != -1 and stairs_spawn_y != -1:
+            # Create a 5x5 area around the stairs spawn point
+            for dy in range(-2, 3):  # -2 to +2 (5 pixels)
+                for dx in range(-2, 3):  # -2 to +2 (5 pixels)
+                    ny = stairs_spawn_y + dy
+                    nx = stairs_spawn_x + dx
+                    # Only set if within bounds and on a floor tile
+                    if 0 <= ny < map_array.shape[0] and 0 <= nx < map_array.shape[1]:
+                        if map_array[ny, nx] == 1:  # Only overwrite floor tiles
+                            map_array[ny, nx] = 3
 
         metadata = {
             'width': 56,
@@ -81,34 +119,43 @@ class MysteryDungeonMapGenerator:
             'room_count': Properties.nb_rooms,
             'layout_type': layout_type,
             'complexity': complexity,
-            'corridor_length': 0.0,
+            'corridor_length': corridor_length,  # Use calculated value
             'generation_params': json.dumps({
                 'layout_type': layout_type,
                 'room_count': room_count,
                 'complexity': complexity
-            })
+            }),
+            'player_spawn_x': int(player_spawn_x) if player_spawn_x != -1 else None,
+            'player_spawn_y': int(player_spawn_y) if player_spawn_y != -1 else None,
+            'stairs_spawn_x': int(stairs_spawn_x) if stairs_spawn_x != -1 else None,
+            'stairs_spawn_y': int(stairs_spawn_y) if stairs_spawn_y != -1 else None
         }
 
         return map_array, metadata
     
     def tiles_to_numpy(self, tiles):
-        height, width = len(tiles), len(tiles[0])
+        height, width = len(tiles[0]), len(tiles)
         map_array = np.zeros((height, width))
 
         for y in range(height):
             for x in range(width):
-                tile = tiles[y][x]
+                tile = tiles[x][y]
                 map_array[y, x] = 1 if tile[0x0] & 0x1 else 0
 
         return map_array
     
     def map_array_to_image(self,
                            map_array: np.ndarray) -> Image.Image:
+        
+        height, width = map_array.shape
+        img_array = np.zeros((height, width, 3), dtype=np.uint8)
+        
+        img_array[map_array == 0] = [0, 0, 0] #Black walls
+        img_array[map_array == 1] = [139, 69, 19] #Brown floors
+        img_array[map_array == 2] = [0, 255, 0] #Green player spawn
+        img_array[map_array == 3] = [255, 0, 0] #Red stairs spawn
 
-        normalized = ((map_array - map_array.min()) / (map_array.max() - map_array.min()) * 255).astype(np.uint8)
-
-        img = Image.fromarray(normalized, mode = 'L')
-
+        img = Image.fromarray(img_array, mode='RGB')
         img = img.resize(self.image_size, Image.LANCZOS)
 
         return img
@@ -139,6 +186,10 @@ class MysteryDungeonMapGenerator:
             try:
                 layout_type = np.random.randint(1, 8)
                 map_array, metadata = self.generate_map(layout_type, room_count, complexity)
+                
+                if playablebfs(map_array) is None:
+                    print(f'Skipping unplayable map: Map {i}')
+                    continue
 
                 map_hash = self.calculate_hash(map_array)
                 if map_hash in seen_hashes:
@@ -157,7 +208,11 @@ class MysteryDungeonMapGenerator:
                     'corridor_length': metadata['corridor_length'],
                     'generation_params': metadata['generation_params'],
                     'hash': map_hash,
-                    'map_array': map_array
+                    'map_array': map_array,
+                    'player_spawn_x': metadata.get('player_spawn_x', -1) or -1,
+                    'player_spawn_y': metadata.get('player_spawn_y', -1) or -1,
+                    'stairs_spawn_x': metadata.get('stairs_spawn_x', -1) or -1,
+                    'stairs_spawn_y': metadata.get('stairs_spawn_y', -1) or -1
                 }
 
                 dataset_data.append(dataset_entry)

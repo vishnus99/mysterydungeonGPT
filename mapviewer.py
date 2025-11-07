@@ -19,18 +19,16 @@ class MysteryDungeonMapViewer:
         self.ascii_chars = {
             0: '#',  # Wall
             1: '.',  # Floor
-            2: '~',  # Water (if you add it)
-            3: '^',  # Lava (if you add it)
-            4: '*',  # Treasure (if you add it)
+            2: 'P',  # Player spawn
+            3: 'S',  # Stairs spawn
         }
         
         # Colors for matplotlib visualization
         self.colors = {
             0: '#000000',  # Black walls
             1: '#8B4513',  # Brown floors
-            2: '#0000FF',  # Blue water
-            3: '#FF0000',  # Red lava
-            4: '#FFD700',  # Gold treasure
+            2: '#00FF00',  # Green player spawn
+            3: '#FF0000',  # Red stairs spawn
         }
     
     def load_dataset_from_huggingface(self, dataset_name: str) -> pd.DataFrame:
@@ -55,11 +53,31 @@ class MysteryDungeonMapViewer:
         # Convert image back to numpy array
         img_array = np.array(image_pil)
         
-        # If it's grayscale, use it directly
-        if len(img_array.shape) == 2:
-            # Normalize to 0-1 range
+        # If it's RGB (3 channels), check for spawn points and convert properly
+        if len(img_array.shape) == 3 and img_array.shape[2] == 3:
+            # RGB image - check for spawn point colors
+            height, width = img_array.shape[:2]
+            map_array = np.zeros((height, width), dtype=np.uint8)
+            
+            # Green = player spawn (2), Red = stairs spawn (3)
+            # Brown = floor (1), Black = wall (0)
+            for y in range(height):
+                for x in range(width):
+                    r, g, b = img_array[y, x]
+                    if r == 0 and g == 0 and b == 0:
+                        map_array[y, x] = 0  # Wall
+                    elif r == 139 and g == 69 and b == 19:
+                        map_array[y, x] = 1  # Floor (brown)
+                    elif r == 0 and g == 255 and b == 0:
+                        map_array[y, x] = 2  # Player spawn (green)
+                    elif r == 255 and g == 0 and b == 0:
+                        map_array[y, x] = 3  # Stairs spawn (red)
+                    else:
+                        # Default to floor if it's not pure black
+                        map_array[y, x] = 1 if (r + g + b) > 0 else 0
+        elif len(img_array.shape) == 2:
+            # Grayscale image
             normalized = img_array.astype(np.float32) / 255.0
-            # Convert back to binary (0 or 1)
             map_array = (normalized > 0.5).astype(np.uint8)
         else:
             # If RGB, convert to grayscale first
@@ -185,8 +203,18 @@ class MysteryDungeonMapViewer:
         
         row = df.iloc[index]
         
-        # Extract map array from image
-        map_array = self.extract_map_from_image(row['image'])
+        # Use stored map_array if available, otherwise extract from image
+        if 'map_array' in row and row['map_array'] is not None:
+            # Handle if it's stored as a string or numpy array
+            if isinstance(row['map_array'], (str, bytes)):
+                # If it's stored as a string representation, you may need to parse it
+                # For now, fall back to image extraction
+                map_array = self.extract_map_from_image(row['image'])
+            else:
+                map_array = np.array(row['map_array'])
+        else:
+            # Fall back to extracting from image
+            map_array = self.extract_map_from_image(row['image'])
         
         # Display map
         title = f"Map {index} (ID: {row.get('map_id', 'Unknown')})"
@@ -229,7 +257,15 @@ class MysteryDungeonMapViewer:
                 break
                 
             row = df.iloc[idx]
-            map_array = self.extract_map_from_image(row['image'])
+            
+            # Use stored map_array if available
+            if 'map_array' in row and row['map_array'] is not None:
+                if isinstance(row['map_array'], (str, bytes)):
+                    map_array = self.extract_map_from_image(row['image'])
+                else:
+                    map_array = np.array(row['map_array'])
+            else:
+                map_array = self.extract_map_from_image(row['image'])
             
             # Create colored map
             colored_map = np.zeros((*map_array.shape, 3))
