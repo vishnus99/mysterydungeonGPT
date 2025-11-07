@@ -13,6 +13,8 @@ from typing import Optional, List, Tuple
 import argparse
 import os
 
+from src.playablemap import playablebfs
+
 class MysteryDungeonMapViewer:
     def __init__(self):
         # ASCII characters for different tile types
@@ -87,62 +89,71 @@ class MysteryDungeonMapViewer:
         
         return map_array
     
-    def display_ascii_map(self, map_array: np.ndarray, title: str = "Map", 
-                         save_to_file: str = None):
+    def display_ascii_map(self, map_array: np.ndarray, title: str = "Map",
+                          save_to_file: str = None, path: Optional[List[Tuple[int, int]]] = None):
         """Display map as ASCII art"""
         ascii_output = []
         ascii_output.append(f"\n{title}")
         ascii_output.append("=" * (map_array.shape[1] + 2))
-        
-        for row in map_array:
-            ascii_row = ''.join([self.ascii_chars.get(tile, '?') for tile in row])
-            ascii_output.append(f"|{ascii_row}|")
-        
+
+        path_set = set(path) if path else set()
+
+        for y, row in enumerate(map_array):
+            ascii_row_chars = []
+            for x, tile in enumerate(row):
+                if (x, y) in path_set and tile not in (2, 3):
+                    ascii_row_chars.append('@')          # blue path marker in text view
+                else:
+                    ascii_row_chars.append(self.ascii_chars.get(tile, '?'))
+            ascii_output.append(f"|{''.join(ascii_row_chars)}|")
+
         ascii_output.append("=" * (map_array.shape[1] + 2))
         ascii_output.append(f"Size: {map_array.shape[1]}x{map_array.shape[0]}")
         ascii_output.append(f"Floor tiles: {np.sum(map_array == 1)}")
         ascii_output.append(f"Wall tiles: {np.sum(map_array == 0)}")
-        
-        # Print to console
+
         for line in ascii_output:
             print(line)
-        
-        # Save to file if requested
+
         if save_to_file:
             with open(save_to_file, 'w') as f:
                 f.write('\n'.join(ascii_output))
             print(f"ASCII map saved to: {save_to_file}")
     
-    def display_matplotlib_map(self, map_array: np.ndarray, title: str = "Map", 
-                              figsize: Tuple[int, int] = (10, 8), save_to_file: str = None):
+    def display_matplotlib_map(self, map_array: np.ndarray, title: str = "Map",
+                               figsize: Tuple[int, int] = (10, 8), save_to_file: str = None,
+                               path: Optional[List[Tuple[int, int]]] = None):
         """Display map using matplotlib"""
         fig, ax = plt.subplots(figsize=figsize)
-        
-        # Create colored map
+
         colored_map = np.zeros((*map_array.shape, 3))
         for tile_type, color in self.colors.items():
             mask = map_array == tile_type
             colored_map[mask] = plt.matplotlib.colors.to_rgb(color)
-        
+
+        if path:
+            path_color = plt.matplotlib.colors.to_rgb('#1E90FF')  # blue
+            for x, y in path:
+                if 0 <= y < map_array.shape[0] and 0 <= x < map_array.shape[1]:
+                    if map_array[y, x] not in (2, 3):            # keep spawn/stairs visible
+                        colored_map[y, x] = path_color
+
         ax.imshow(colored_map)
         ax.set_title(title)
         ax.set_xlabel('Width')
         ax.set_ylabel('Height')
-        
-        # Add grid
         ax.set_xticks(range(0, map_array.shape[1], 5))
         ax.set_yticks(range(0, map_array.shape[0], 5))
         ax.grid(True, alpha=0.3)
-        
+
         plt.tight_layout()
-        
-        # Save to file if requested
+
         if save_to_file:
             plt.savefig(save_to_file, dpi=300, bbox_inches='tight')
             print(f"Map image saved to: {save_to_file}")
         else:
             plt.show()
-        
+
         plt.close()
     
     def save_map_as_numpy(self, map_array: np.ndarray, filename: str):
@@ -216,6 +227,8 @@ class MysteryDungeonMapViewer:
             # Fall back to extracting from image
             map_array = self.extract_map_from_image(row['image'])
         
+        path = playablebfs(map_array)
+    
         # Display map
         title = f"Map {index} (ID: {row.get('map_id', 'Unknown')})"
         
@@ -229,11 +242,11 @@ class MysteryDungeonMapViewer:
         
         if display_format in ["ascii", "both"]:
             ascii_file = f"{base_filename}.txt" if base_filename else None
-            self.display_ascii_map(map_array, title, ascii_file)
-        
+            self.display_ascii_map(map_array, title, ascii_file, path=path)
+
         if display_format in ["matplotlib", "both"]:
             img_file = f"{base_filename}.png" if base_filename else None
-            self.display_matplotlib_map(map_array, title, save_to_file=img_file)
+            self.display_matplotlib_map(map_array, title, save_to_file=img_file, path=path)
         
         # Save additional formats if output directory specified
         if output_dir:
@@ -267,11 +280,20 @@ class MysteryDungeonMapViewer:
             else:
                 map_array = self.extract_map_from_image(row['image'])
             
+            path = playablebfs(map_array)
+            
             # Create colored map
             colored_map = np.zeros((*map_array.shape, 3))
             for tile_type, color in self.colors.items():
                 mask = map_array == tile_type
                 colored_map[mask] = plt.matplotlib.colors.to_rgb(color)
+
+            if path:
+                path_color = plt.matplotlib.colors.to_rgb('#1E90FF')
+                for x, y in path:
+                    if 0 <= y < map_array.shape[0] and 0 <= x < map_array.shape[1]:
+                        if map_array[y, x] not in (2, 3):
+                            colored_map[y, x] = path_color
             
             axes[i].imshow(colored_map)
             axes[i].set_title(f"Map {idx}")
