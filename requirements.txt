@@ -9,6 +9,7 @@ numpy>=1.21.0
 # You'll need to install dungeon-eos from the GitHub repository:
 # git clone https://github.com/SkyTemple/dungeon-eos.git
 # cd dungeon-eos && pip install -e .
+# Note: This is the dungeon generation algorithm library, not the ROM hacking tool
 
 # Optional: For advanced image processing
 opencv-python>=4.5.0

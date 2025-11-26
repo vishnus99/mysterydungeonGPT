@@ -1,3 +1,5 @@
+#This code is from: https://github.com/SkyTemple/dungeon-eos
+
 import random as sys_rnd
 
 # US: 02353570

@@ -1,3 +1,5 @@
+#This code is from: https://github.com/SkyTemple/dungeon-eos
+
 from dungeon_eos.RandomGen import *
 
 
