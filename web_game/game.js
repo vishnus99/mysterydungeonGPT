@@ -5,7 +5,15 @@ let dungeonMaps = [];
 let currentMap = null;
 let player = { x: 0, y: 0 };
 const TILE_SIZE = 12;
+
+// Camera/viewport settings
+const VIEWPORT_WIDTH_TILES = 50;  // Number of tiles visible horizontally
+const VIEWPORT_HEIGHT_TILES = 40; // Number of tiles visible vertically
+const CANVAS_WIDTH = VIEWPORT_WIDTH_TILES * TILE_SIZE;
+const CANVAS_HEIGHT = VIEWPORT_HEIGHT_TILES * TILE_SIZE;
+
 let canvas, ctx;
+let camera = { x: 0, y: 0 }; // Camera position in world coordinates
 
 // Track currently pressed keys
 const pressedKeys = new Set();
@@ -22,6 +30,10 @@ const KEY_DIRECTIONS = {
 document.addEventListener('DOMContentLoaded', () => {
     canvas = document.getElementById('gameCanvas');
     ctx = canvas.getContext('2d');
+    
+    // Set fixed canvas size
+    canvas.width = CANVAS_WIDTH;
+    canvas.height = CANVAS_HEIGHT;
     
     document.getElementById('startButton').addEventListener('click', startGame);
     document.getElementById('resetButton').addEventListener('click', () => {
@@ -54,6 +66,26 @@ async function startGame() {
     loadFloor(0);
 }
 
+function updateCamera() {
+    if (!currentMap) return;
+    
+    // Center camera on player
+    // Camera position is the top-left corner of the viewport
+    camera.x = player.x - Math.floor(VIEWPORT_WIDTH_TILES / 2);
+    camera.y = player.y - Math.floor(VIEWPORT_HEIGHT_TILES / 2);
+    
+    // Clamp camera to map boundaries
+    camera.x = Math.max(0, Math.min(camera.x, currentMap.width - VIEWPORT_WIDTH_TILES));
+    camera.y = Math.max(0, Math.min(camera.y, currentMap.height - VIEWPORT_HEIGHT_TILES));
+}
+
+function worldToScreen(worldX, worldY) {
+    // Convert world coordinates to screen coordinates
+    const screenX = (worldX - camera.x) * TILE_SIZE;
+    const screenY = (worldY - camera.y) * TILE_SIZE;
+    return [screenX, screenY];
+}
+
 async function loadFloor(floorIndex) {
     if (floorIndex >= dungeonMaps.length) {
         alert('Congratulations! You completed the dungeon!');
@@ -69,9 +101,8 @@ async function loadFloor(floorIndex) {
     document.getElementById('currentFloor').textContent = floorIndex + 1;
     document.getElementById('totalFloors').textContent = totalFloors;
     
-    canvas.width = currentMap.width * TILE_SIZE;
-    canvas.height = currentMap.height * TILE_SIZE;
-    
+    // Canvas size is now fixed, no need to resize
+    updateCamera();
     draw();
 }
 
@@ -123,6 +154,8 @@ function gameLoop() {
         player.x = newX;
         player.y = newY;
         
+        updateCamera(); // Update camera position
+        
         if (!checkStairs()) {
             draw();
         }
@@ -152,12 +185,17 @@ function draw() {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Draw tiles
-    for (let y = 0; y < currentMap.height; y++) {
-        for (let x = 0; x < currentMap.width; x++) {
+    // Calculate visible tile range
+    const startX = Math.max(0, camera.x);
+    const endX = Math.min(currentMap.width, camera.x + VIEWPORT_WIDTH_TILES);
+    const startY = Math.max(0, camera.y);
+    const endY = Math.min(currentMap.height, camera.y + VIEWPORT_HEIGHT_TILES);
+    
+    // Draw visible tiles only
+    for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
             const tile = currentMap.tiles[y][x];
-            const screenX = x * TILE_SIZE;
-            const screenY = y * TILE_SIZE;
+            const [screenX, screenY] = worldToScreen(x, y);
             
             if (tile === 0) {
                 ctx.fillStyle = '#333';
@@ -169,19 +207,22 @@ function draw() {
         }
     }
     
-    // Draw stairs
+    // Draw stairs (if visible)
     const [sx, sy] = currentMap.stairs_spawn;
-    ctx.fillStyle = '#ff0000';
-    ctx.fillRect(sx * TILE_SIZE, sy * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-    ctx.fillStyle = '#fff';
-    ctx.font = `${TILE_SIZE}px Arial`;
-    ctx.textAlign = 'center';
-    ctx.fillText('↓', sx * TILE_SIZE + TILE_SIZE/2, sy * TILE_SIZE + TILE_SIZE/2 + 3);
+    if (sx >= startX && sx < endX && sy >= startY && sy < endY) {
+        const [screenSx, screenSy] = worldToScreen(sx, sy);
+        ctx.fillStyle = '#ff0000';
+        ctx.fillRect(screenSx, screenSy, TILE_SIZE, TILE_SIZE);
+        ctx.fillStyle = '#fff';
+        ctx.font = `${TILE_SIZE}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText('↓', screenSx + TILE_SIZE/2, screenSy + TILE_SIZE/2 + 3);
+    }
     
-    // Draw player
+    // Draw player (always visible since camera follows player)
+    const [screenPx, screenPy] = worldToScreen(player.x, player.y);
     ctx.fillStyle = '#00ff00';
-    ctx.fillRect(player.x * TILE_SIZE, player.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+    ctx.fillRect(screenPx, screenPy, TILE_SIZE, TILE_SIZE);
     ctx.fillStyle = '#fff';
-    ctx.fillText('@', player.x * TILE_SIZE + TILE_SIZE/2, player.y * TILE_SIZE + TILE_SIZE/2 + 3);
+    ctx.fillText('@', screenPx + TILE_SIZE/2, screenPy + TILE_SIZE/2 + 3);
 }
-
