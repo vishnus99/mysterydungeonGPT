@@ -2,6 +2,7 @@
 Load maps from HuggingFace dataset and convert them to JSON for the browser game.
 """
 import numpy as np
+import json
 from pathlib import Path
 from datasets import load_dataset
 from PIL import Image
@@ -125,13 +126,26 @@ def convert_map_to_json(map_data, output_dir):
         'stairs_spawn_y': map_data.get('stairs_spawn_y', -1)
     }
     
+    # Parse enemies from metadata
+    enemies = []
+    if 'enemies' in map_data and map_data['enemies']:
+        try:
+            enemies = json.loads(map_data['enemies'])
+        except:
+            enemies = []
+    
+    # Get difficulty
+    difficulty = map_data.get('difficulty', 'medium')
+    
     # Create JSON structure
     map_info = create_map_json_structure(
         map_id=map_data.get('map_id', 'unknown'),
         map_data_list=map_data_list,
         player_spawn=player_spawn,
         stairs_spawn=stairs_spawn,
-        fallback_spawns=fallback_spawns
+        fallback_spawns=fallback_spawns,
+        difficulty=difficulty,
+        enemies=enemies
     )
     
     # Save to file

@@ -37,7 +37,9 @@ def create_map_json_structure(
     map_data_list: List[List[int]],
     player_spawn: Optional[List[int]] = None,
     stairs_spawn: Optional[List[int]] = None,
-    fallback_spawns: Optional[Dict[str, int]] = None
+    fallback_spawns: Optional[Dict[str, int]] = None,
+    difficulty: Optional[str] = None,
+    enemies: Optional[List[Dict]] = None
 ) -> Dict:
     """
     Create the JSON structure for a map.
@@ -49,6 +51,8 @@ def create_map_json_structure(
         stairs_spawn: [x, y] stairs spawn coordinates (or None to use fallback)
         fallback_spawns: Dict with keys 'player_spawn_x', 'player_spawn_y', 
                         'stairs_spawn_x', 'stairs_spawn_y' for fallback values
+        difficulty: Difficulty level ('easy', 'medium', 'hard')
+        enemies: List of enemy dictionaries
     
     Returns:
         Dictionary with map information in JSON format
@@ -74,7 +78,7 @@ def create_map_json_structure(
         if stairs_spawn is None:
             stairs_spawn = [0, 0]  # Default fallback
     
-    return {
+    result = {
         'map_id': map_id,
         'width': len(map_data_list[0]),
         'height': len(map_data_list),
@@ -82,6 +86,15 @@ def create_map_json_structure(
         'player_spawn': player_spawn,
         'stairs_spawn': stairs_spawn
     }
+    
+    # Add optional fields
+    if difficulty is not None:
+        result['difficulty'] = difficulty
+    
+    if enemies is not None:
+        result['enemies'] = enemies
+    
+    return result
 
 
 def save_map_json(map_info: Dict, output_dir: Path) -> Path:

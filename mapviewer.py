@@ -5,11 +5,12 @@ Loads maps from HuggingFace datasets and displays them in various formats
 
 import numpy as np
 import pandas as pd
+import json
 from datasets import load_dataset
 from PIL import Image
 import matplotlib.pyplot as plt
 import seaborn as sns
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 import argparse
 import os
 
@@ -31,6 +32,16 @@ class MysteryDungeonMapViewer:
             1: '#8B4513',  # Brown floors
             2: '#00FF00',  # Green player spawn
             3: '#FF0000',  # Red stairs spawn
+        }
+        
+        # Enemy colors by type
+        self.enemy_colors = {
+            'weak': '#FFA07A',      # Light salmon
+            'basic': '#FF6B6B',      # Red
+            'aggressive': '#DC143C', # Crimson
+            'patrol': '#8B0000',     # Dark red
+            'elite': '#4B0082',      # Indigo
+            'boss': '#FF00FF'        # Magenta
         }
     
     def load_dataset_from_huggingface(self, dataset_name: str) -> pd.DataFrame:
@@ -90,18 +101,47 @@ class MysteryDungeonMapViewer:
         return map_array
     
     def display_ascii_map(self, map_array: np.ndarray, title: str = "Map",
-                          save_to_file: str = None, path: Optional[List[Tuple[int, int]]] = None):
+                          save_to_file: str = None, path: Optional[List[Tuple[int, int]]] = None,
+                          enemies: Optional[List[Dict]] = None):
         """Display map as ASCII art"""
+        
         ascii_output = []
         ascii_output.append(f"\n{title}")
         ascii_output.append("=" * (map_array.shape[1] + 2))
 
         path_set = set(path) if path else set()
+        
+        # Create enemy position set for quick lookup
+        enemy_positions = {}
+        if enemies:
+            # Handle if enemies is a JSON string
+            if isinstance(enemies, str):
+                try:
+                    enemies = json.loads(enemies)
+                except:
+                    enemies = []
+            if isinstance(enemies, list):
+                for enemy in enemies:
+                    if isinstance(enemy, dict) and 'x' in enemy and 'y' in enemy:
+                        enemy_positions[(enemy['x'], enemy['y'])] = enemy.get('type', 'basic')
 
         for y, row in enumerate(map_array):
             ascii_row_chars = []
             for x, tile in enumerate(row):
-                if (x, y) in path_set and tile not in (2, 3):
+                if (x, y) in enemy_positions:
+                    # Show enemy type abbreviation
+                    enemy_type = enemy_positions[(x, y)]
+                    if enemy_type == 'boss':
+                        ascii_row_chars.append('B')
+                    elif enemy_type == 'elite':
+                        ascii_row_chars.append('E')
+                    elif enemy_type == 'aggressive':
+                        ascii_row_chars.append('A')
+                    elif enemy_type == 'patrol':
+                        ascii_row_chars.append('R')
+                    else:
+                        ascii_row_chars.append('e')  # basic/weak enemies
+                elif (x, y) in path_set and tile not in (2, 3):
                     ascii_row_chars.append('@')          # blue path marker in text view
                 else:
                     ascii_row_chars.append(self.ascii_chars.get(tile, '?'))
@@ -111,6 +151,8 @@ class MysteryDungeonMapViewer:
         ascii_output.append(f"Size: {map_array.shape[1]}x{map_array.shape[0]}")
         ascii_output.append(f"Floor tiles: {np.sum(map_array == 1)}")
         ascii_output.append(f"Wall tiles: {np.sum(map_array == 0)}")
+        if enemies and len(enemy_positions) > 0:
+            ascii_output.append(f"Enemies: {len(enemy_positions)}")
 
         for line in ascii_output:
             print(line)
@@ -122,8 +164,10 @@ class MysteryDungeonMapViewer:
     
     def display_matplotlib_map(self, map_array: np.ndarray, title: str = "Map",
                                figsize: Tuple[int, int] = (10, 8), save_to_file: str = None,
-                               path: Optional[List[Tuple[int, int]]] = None):
+                               path: Optional[List[Tuple[int, int]]] = None,
+                               enemies: Optional[List[Dict]] = None):
         """Display map using matplotlib"""
+        
         fig, ax = plt.subplots(figsize=figsize)
 
         colored_map = np.zeros((*map_array.shape, 3))
@@ -137,6 +181,23 @@ class MysteryDungeonMapViewer:
                 if 0 <= y < map_array.shape[0] and 0 <= x < map_array.shape[1]:
                     if map_array[y, x] not in (2, 3):            # keep spawn/stairs visible
                         colored_map[y, x] = path_color
+
+        # Draw enemies
+        if enemies:
+            # Handle if enemies is a JSON string
+            if isinstance(enemies, str):
+                try:
+                    enemies = json.loads(enemies)
+                except:
+                    enemies = []
+            if isinstance(enemies, list):
+                for enemy in enemies:
+                    if isinstance(enemy, dict) and 'x' in enemy and 'y' in enemy:
+                        x, y = enemy['x'], enemy['y']
+                        if 0 <= y < map_array.shape[0] and 0 <= x < map_array.shape[1]:
+                            enemy_type = enemy.get('type', 'basic')
+                            enemy_color = self.enemy_colors.get(enemy_type, '#FF6B6B')
+                            colored_map[y, x] = plt.matplotlib.colors.to_rgb(enemy_color)
 
         ax.imshow(colored_map)
         ax.set_title(title)
@@ -228,9 +289,16 @@ class MysteryDungeonMapViewer:
             map_array = self.extract_map_from_image(row['image'])
         
         path = playablebfs(map_array)
+        
+        # Extract enemies from metadata if available
+        enemies = None
+        if 'enemies' in row and row['enemies'] is not None:
+            enemies = row['enemies']
     
         # Display map
         title = f"Map {index} (ID: {row.get('map_id', 'Unknown')})"
+        if 'difficulty' in row:
+            title += f" - Difficulty: {row['difficulty']}"
         
         # Create output directory if specified
         if output_dir:
@@ -242,11 +310,11 @@ class MysteryDungeonMapViewer:
         
         if display_format in ["ascii", "both"]:
             ascii_file = f"{base_filename}.txt" if base_filename else None
-            self.display_ascii_map(map_array, title, ascii_file, path=path)
+            self.display_ascii_map(map_array, title, ascii_file, path=path, enemies=enemies)
 
         if display_format in ["matplotlib", "both"]:
             img_file = f"{base_filename}.png" if base_filename else None
-            self.display_matplotlib_map(map_array, title, save_to_file=img_file, path=path)
+            self.display_matplotlib_map(map_array, title, save_to_file=img_file, path=path, enemies=enemies)
         
         # Save additional formats if output directory specified
         if output_dir:

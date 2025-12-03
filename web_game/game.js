@@ -6,6 +6,11 @@ let currentMap = null;
 let player = { x: 0, y: 0 };
 const TILE_SIZE = 12;
 
+// Enemy state tracking
+let enemies = []; // Array of enemy objects with position and state
+let lastEnemyMoveTime = Date.now(); // Initialize to current time so enemies can move immediately
+const ENEMY_MOVE_INTERVAL = 300; // Enemies move every 300ms (slower than player)
+
 // Camera/viewport settings
 const VIEWPORT_WIDTH_TILES = 50;  // Number of tiles visible horizontally
 const VIEWPORT_HEIGHT_TILES = 40; // Number of tiles visible vertically
@@ -44,8 +49,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('keyup', handleKeyUp);
     
-    // Game loop for smooth movement
-    setInterval(gameLoop, 100); // Update every 100ms
+    // Game loop for smooth movement and enemy AI
+    setInterval(gameLoop, 100); // Update every 100ms (enemies move every 300ms internally)
 });
 
 async function startGame() {
@@ -98,6 +103,25 @@ async function loadFloor(floorIndex) {
     player.x = currentMap.player_spawn[0];
     player.y = currentMap.player_spawn[1];
     
+    // Initialize enemies with state tracking
+    enemies = [];
+    lastEnemyMoveTime = Date.now(); // Reset timer when loading new floor
+    if (currentMap.enemies && Array.isArray(currentMap.enemies)) {
+        currentMap.enemies.forEach(enemy => {
+            const isOnFloor = isFloorTile(enemy.x, enemy.y);
+            enemies.push({
+                x: enemy.x,
+                y: enemy.y,
+                type: enemy.type,
+                hp: enemy.hp,
+                max_hp: enemy.max_hp,
+                damage: enemy.damage,
+                onFloor: isOnFloor, // Track if enemy has entered floor area
+                trapped: isOnFloor  // If enemy starts on floor, they're immediately trapped
+            });
+        });
+    }
+    
     document.getElementById('currentFloor').textContent = floorIndex + 1;
     document.getElementById('totalFloors').textContent = totalFloors;
     
@@ -106,10 +130,151 @@ async function loadFloor(floorIndex) {
     draw();
 }
 
+function isPositionOccupiedByEnemy(x, y, excludeEnemy = null) {
+    // Check if any enemy (except the excluded one) is at this position
+    return enemies.some(enemy => {
+        if (excludeEnemy && enemy === excludeEnemy) return false;
+        return enemy.x === x && enemy.y === y;
+    });
+}
+
+function isPositionOccupiedByPlayer(x, y) {
+    return player.x === x && player.y === y;
+}
+
 function isValidMove(x, y) {
+    // Check bounds and walls
+    if (x < 0 || x >= currentMap.width ||
+        y < 0 || y >= currentMap.height ||
+        currentMap.tiles[y][x] === 0) {
+        return false;
+    }
+    
+    // Check collision with enemies
+    if (isPositionOccupiedByEnemy(x, y)) {
+        return false;
+    }
+    
+    return true;
+}
+
+function isFloorTile(x, y) {
     return x >= 0 && x < currentMap.width &&
            y >= 0 && y < currentMap.height &&
-           currentMap.tiles[y][x] !== 0;
+           currentMap.tiles[y][x] === 1; // 1 = floor tile
+}
+
+function isValidEnemyMove(enemy, newX, newY) {
+    // Basic bounds check
+    if (newX < 0 || newX >= currentMap.width || 
+        newY < 0 || newY >= currentMap.height) {
+        return false;
+    }
+    
+    // Cannot move into walls
+    if (currentMap.tiles[newY][newX] === 0) {
+        return false;
+    }
+    
+    // Check collision with player
+    if (isPositionOccupiedByPlayer(newX, newY)) {
+        return false;
+    }
+    
+    // Check collision with other enemies
+    if (isPositionOccupiedByEnemy(newX, newY, enemy)) {
+        return false;
+    }
+    
+    // If enemy is trapped (has entered floor area), they can only move to floor tiles
+    if (enemy.trapped) {
+        return currentMap.tiles[newY][newX] === 1; // Only floor tiles allowed
+    }
+    
+    // If enemy hasn't entered floor yet, they can move anywhere (walls excluded above)
+    return true;
+}
+
+function moveEnemyTowardsPlayer(enemy) {
+    if (!currentMap) return;
+    
+    // Calculate direction towards player
+    const dx = player.x - enemy.x;
+    const dy = player.y - enemy.y;
+    
+    // If enemy is already at player position, don't move
+    if (dx === 0 && dy === 0) {
+        return;
+    }
+    
+    // Try 8-directional movement, prioritizing direction towards player
+    const directions = [
+        [Math.sign(dx), 0],           // Horizontal towards player
+        [0, Math.sign(dy)],           // Vertical towards player
+        [Math.sign(dx), Math.sign(dy)], // Diagonal towards player
+        [1, 0], [-1, 0], [0, 1], [0, -1],  // Cardinal
+        [1, 1], [1, -1], [-1, 1], [-1, -1] // Diagonal
+    ];
+    
+    // Remove duplicates and zero movements
+    const uniqueDirections = [];
+    const seen = new Set();
+    for (const [dx, dy] of directions) {
+        if (dx === 0 && dy === 0) continue;
+        const key = `${dx},${dy}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            uniqueDirections.push([dx, dy]);
+        }
+    }
+    
+    // Sort directions by distance to player (closer first)
+    uniqueDirections.sort((a, b) => {
+        const distA = Math.abs((enemy.x + a[0]) - player.x) + Math.abs((enemy.y + a[1]) - player.y);
+        const distB = Math.abs((enemy.x + b[0]) - player.x) + Math.abs((enemy.y + b[1]) - player.y);
+        return distA - distB;
+    });
+    
+    // Try each direction
+    for (const [moveX, moveY] of uniqueDirections) {
+        const newX = enemy.x + moveX;
+        const newY = enemy.y + moveY;
+        
+        if (isValidEnemyMove(enemy, newX, newY)) {
+            // Check if enemy is entering floor area
+            if (isFloorTile(newX, newY) && !enemy.onFloor) {
+                enemy.onFloor = true;
+                enemy.trapped = true; // Once on floor, they're trapped
+            }
+            
+            // Update enemy position
+            enemy.x = newX;
+            enemy.y = newY;
+            return; // Successfully moved
+        }
+    }
+    
+    // If no valid move found, enemy stays in place
+}
+
+function updateEnemies() {
+    if (!currentMap || enemies.length === 0) {
+        return; // No map or no enemies to update
+    }
+    
+    const currentTime = Date.now();
+    
+    // Only move enemies at intervals (slower than player movement)
+    if (currentTime - lastEnemyMoveTime < ENEMY_MOVE_INTERVAL) {
+        return;
+    }
+    
+    lastEnemyMoveTime = currentTime;
+    
+    // Move each enemy towards player
+    enemies.forEach(enemy => {
+        moveEnemyTowardsPlayer(enemy);
+    });
 }
 
 function checkStairs() {
@@ -142,24 +307,36 @@ function getCombinedDirection() {
 }
 
 function gameLoop() {
-    if (!currentMap || pressedKeys.size === 0) return;
+    if (!currentMap) return;
     
-    const [dx, dy] = getCombinedDirection();
-    if (dx === 0 && dy === 0) return;
+    let playerMoved = false;
     
-    const newX = player.x + dx;
-    const newY = player.y + dy;
-    
-    if (isValidMove(newX, newY)) {
-        player.x = newX;
-        player.y = newY;
-        
-        updateCamera(); // Update camera position
-        
-        if (!checkStairs()) {
-            draw();
+    // Handle player movement
+    if (pressedKeys.size > 0) {
+        const [dx, dy] = getCombinedDirection();
+        if (dx !== 0 || dy !== 0) {
+            const newX = player.x + dx;
+            const newY = player.y + dy;
+            
+            if (isValidMove(newX, newY)) {
+                player.x = newX;
+                player.y = newY;
+                playerMoved = true;
+                
+                updateCamera(); // Update camera position
+                
+                if (checkStairs()) {
+                    return; // Floor changed, don't draw
+                }
+            }
         }
     }
+    
+    // Update enemies (they move independently of player input)
+    updateEnemies();
+    
+    // Always redraw to show enemy movement, even if player didn't move
+    draw();
 }
 
 function handleKeyDown(e) {
@@ -206,6 +383,42 @@ function draw() {
             }
         }
     }
+    
+    // Draw enemies (use the enemies array with state tracking)
+    enemies.forEach(enemy => {
+        if (enemy.x >= startX && enemy.x < endX && 
+            enemy.y >= startY && enemy.y < endY) {
+            const [screenEx, screenEy] = worldToScreen(enemy.x, enemy.y);
+            
+            // Color based on enemy type
+            let enemyColor = '#FF6B6B'; // Default red
+            if (enemy.type === 'weak') enemyColor = '#FFA07A';
+            else if (enemy.type === 'basic') enemyColor = '#FF6B6B';
+            else if (enemy.type === 'aggressive') enemyColor = '#DC143C';
+            else if (enemy.type === 'patrol') enemyColor = '#8B0000';
+            else if (enemy.type === 'elite') enemyColor = '#4B0082';
+            else if (enemy.type === 'boss') enemyColor = '#FF00FF'; // Magenta
+            
+            // Visual indicator if enemy is trapped on floor
+            if (enemy.trapped) {
+                // Add a subtle border or different shade to show they're trapped
+                ctx.fillStyle = enemyColor;
+                ctx.fillRect(screenEx, screenEy, TILE_SIZE, TILE_SIZE);
+                // Add a border to indicate trapped state
+                ctx.strokeStyle = '#FFFF00'; // Yellow border for trapped enemies
+                ctx.lineWidth = 1;
+                ctx.strokeRect(screenEx, screenEy, TILE_SIZE, TILE_SIZE);
+            } else {
+                ctx.fillStyle = enemyColor;
+                ctx.fillRect(screenEx, screenEy, TILE_SIZE, TILE_SIZE);
+            }
+            
+            ctx.fillStyle = '#fff';
+            ctx.font = `${TILE_SIZE}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.fillText('E', screenEx + TILE_SIZE/2, screenEy + TILE_SIZE/2 + 3);
+        }
+    });
     
     // Draw stairs (if visible)
     const [sx, sy] = currentMap.stairs_spawn;

@@ -29,6 +29,10 @@
       "dtype": "float32",
       "_type": "Value"
     },
+    "difficulty": {
+      "dtype": "string",
+      "_type": "Value"
+    },
     "generation_params": {
       "dtype": "string",
       "_type": "Value"
@@ -55,6 +59,10 @@
     },
     "stairs_spawn_y": {
       "dtype": "int64",
+      "_type": "Value"
+    },
+    "enemies": {
+      "dtype": "string",
       "_type": "Value"
     }
   },
