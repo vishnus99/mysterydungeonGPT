@@ -3631,9 +3631,9 @@ def generate_floor():
 
             # Make sure there are at least 7 tiles per grid cell in both
             # dimensions. Otherwise, the grid size is too big so default to 1
-            if 0x38 // max_nb_room_x <= 7:
+            if 0x38 // max_nb_room_x <= 5:  # Changed from 7 to 5
                 max_nb_room_x = 1
-            if 0x20 // max_nb_room_y <= 7:
+            if 0x20 // max_nb_room_y <= 5:  # Changed from 7 to 5
                 max_nb_room_y = 1
             secondary_gen = 0
             # Try to generate the configured floor layout

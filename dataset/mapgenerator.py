@@ -602,7 +602,7 @@ def main():
         num_maps = 1000,
         width_range = (20, 50),
         height_range = (20, 50),
-        room_range = (3, 10),
+        room_range = (4, 7),
         complexity_range = (0.2, 0.8),
         difficulty_distribution = {'medium': 1.0}
     )
