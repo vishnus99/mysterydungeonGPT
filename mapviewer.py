@@ -112,7 +112,7 @@ class MysteryDungeonMapViewer:
         path_set = set(path) if path else set()
         
         # Create enemy position set for quick lookup
-        enemy_positions = {}
+        enemy_positions = set()
         if enemies:
             # Handle if enemies is a JSON string
             if isinstance(enemies, str):
@@ -123,24 +123,14 @@ class MysteryDungeonMapViewer:
             if isinstance(enemies, list):
                 for enemy in enemies:
                     if isinstance(enemy, dict) and 'x' in enemy and 'y' in enemy:
-                        enemy_positions[(enemy['x'], enemy['y'])] = enemy.get('type', 'basic')
+                        enemy_positions.add((enemy['x'], enemy['y']))
 
         for y, row in enumerate(map_array):
             ascii_row_chars = []
             for x, tile in enumerate(row):
                 if (x, y) in enemy_positions:
-                    # Show enemy type abbreviation
-                    enemy_type = enemy_positions[(x, y)]
-                    if enemy_type == 'boss':
-                        ascii_row_chars.append('B')
-                    elif enemy_type == 'elite':
-                        ascii_row_chars.append('E')
-                    elif enemy_type == 'aggressive':
-                        ascii_row_chars.append('A')
-                    elif enemy_type == 'patrol':
-                        ascii_row_chars.append('R')
-                    else:
-                        ascii_row_chars.append('e')  # basic/weak enemies
+                    # Show enemy as 'E'
+                    ascii_row_chars.append('E')
                 elif (x, y) in path_set and tile not in (2, 3):
                     ascii_row_chars.append('@')          # blue path marker in text view
                 else:
@@ -195,8 +185,8 @@ class MysteryDungeonMapViewer:
                     if isinstance(enemy, dict) and 'x' in enemy and 'y' in enemy:
                         x, y = enemy['x'], enemy['y']
                         if 0 <= y < map_array.shape[0] and 0 <= x < map_array.shape[1]:
-                            enemy_type = enemy.get('type', 'basic')
-                            enemy_color = self.enemy_colors.get(enemy_type, '#FF6B6B')
+                            # Simple red color for all enemies
+                            enemy_color = '#FF6B6B'
                             colored_map[y, x] = plt.matplotlib.colors.to_rgb(enemy_color)
 
         ax.imshow(colored_map)

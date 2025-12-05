@@ -13,8 +13,8 @@ import sys
 import shutil
 
 #Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger(__name__)
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -39,15 +39,15 @@ def is_map_playable(map_array: np.ndarray, enemies: List[Dict], player_spawn: Tu
     """
     # Check player spawn to stairs
     if player_spawn[0] == -1 or player_spawn[1] == -1:
-        logger.warning("Invalid player spawn position")
+        # logger.warning("Invalid player spawn position")
         return False
     
     if stairs_spawn[0] == -1 or stairs_spawn[1] == -1:
-        logger.warning("Invalid stairs spawn position")
+        # logger.warning("Invalid stairs spawn position")
         return False
     
     if not is_reachable_from_spawn(map_array, player_spawn, stairs_spawn):
-        logger.debug("Player spawn to stairs is not reachable")
+        # logger.debug("Player spawn to stairs is not reachable")
         return False
     
     # Check player spawn to each enemy spawn
@@ -57,12 +57,12 @@ def is_map_playable(map_array: np.ndarray, enemies: List[Dict], player_spawn: Tu
     
     for enemy in enemies:
         if 'x' not in enemy or 'y' not in enemy:
-            logger.warning(f"Enemy missing x or y coordinates: {enemy}")
+            # logger.warning(f"Enemy missing x or y coordinates: {enemy}")
             continue
         
         enemy_pos = (enemy['x'], enemy['y'])
         if not is_reachable_from_spawn(map_array, player_spawn, enemy_pos):
-            logger.debug(f"Player spawn to enemy at ({enemy_pos[0]}, {enemy_pos[1]}) is not reachable")
+            # logger.debug(f"Player spawn to enemy at ({enemy_pos[0]}, {enemy_pos[1]}) is not reachable")
             return False
     
     return True
@@ -181,153 +181,189 @@ class MysteryDungeonMapGenerator:
         })
 
     def generate_enemies(self, 
-                         map_array: np.ndarray, 
-                         player_spawn: Tuple[int, int],
-                         stairs_spawn: Tuple[int, int],
-                         difficulty: str = 'medium',
-                         original_tiles = None) -> List[Dict]:
+                     map_array: np.ndarray, 
+                     player_spawn: Tuple[int, int],
+                     stairs_spawn: Tuple[int, int],
+                     difficulty: str = 'medium',
+                     original_tiles = None) -> List[Dict]:
         """
-        Generate enemies based on difficulty level.
+        Generate enemy spawn positions. Uses ONLY original_tiles as source of truth.
         
         Args:
-            map_array: The map array (0=wall, 1=floor, 2=player spawn, 3=stairs spawn)
+            map_array: The map array (for reachability check only)
             player_spawn: (x, y) player spawn position
             stairs_spawn: (x, y) stairs spawn position
-            difficulty: 'easy', 'medium', or 'hard'
-            original_tiles: Original DungeonData.list_tiles for validation (optional)
+            difficulty: 'easy', 'medium', or 'hard' (used only for count)
+            original_tiles: Original DungeonData.list_tiles for validation (REQUIRED)
         
         Returns:
-            List of enemy dictionaries with 'x', 'y', 'type', 'hp', 'max_hp', and 'damage' fields
+            List of enemy dictionaries with only 'x' and 'y' fields
         """
         import random
         
-        # Get difficulty config
-        config = self.DIFFICULTY_CONFIGS.get(difficulty, self.DIFFICULTY_CONFIGS['medium'])
-        height, width = map_array.shape
+        if original_tiles is None:
+            # logger.error("original_tiles is REQUIRED for enemy generation")
+            return []
         
-        # Get all valid floor tile positions
-        # Exclude spawn areas (5x5 areas around spawn points)
+        height, width = map_array.shape
         player_spawn_x, player_spawn_y = player_spawn
         stairs_spawn_x, stairs_spawn_y = stairs_spawn
         
-        floor_positions = []
-        for y in range(height):
-            for x in range(width):
-                # BOTH checks must pass: original_tiles AND map_array must agree it's a floor
-                # This ensures we never place enemies on walls
-                
-                # Check 1: map_array must be floor (value 1), not wall (0) or spawn area (2, 3)
-                if map_array[y, x] != 1:
-                    continue  # Skip walls and spawn areas
-                
-                # Check 2: original_tiles must also say it's a floor
-                if original_tiles is not None:
-                    try:
-                        # original_tiles is indexed as [x][y], dimensions are 56x32
-                        if x >= len(original_tiles) or y >= len(original_tiles[0]):
-                            # Out of bounds in original_tiles, skip
-                            continue
-                        
-                        tile = original_tiles[x][y]
-                        # Tile is walkable if lower 2 bits are 0x1 (matches dungeon algorithm check)
-                        if (tile[0x0] & 0x3) != 1:
-                            # Not a floor in original_tiles, skip
-                            continue
-                    except (IndexError, AttributeError, TypeError, KeyError) as e:
-                        # If validation fails, skip this position to be safe
-                        logger.debug(f"Error validating tile at ({x}, {y}): {e}")
-                        continue
-                
-                # Third check: Exclude spawn areas (5x5 areas around spawn points)
-                in_player_area = False
-                if player_spawn_x != -1 and player_spawn_y != -1:
-                    if (abs(x - player_spawn_x) <= 2 and abs(y - player_spawn_y) <= 2):
-                        in_player_area = True
-                
-                in_stairs_area = False
-                if stairs_spawn_x != -1 and stairs_spawn_y != -1:
-                    if (abs(x - stairs_spawn_x) <= 2 and abs(y - stairs_spawn_y) <= 2):
-                        in_stairs_area = True
-                
-                # Only add if it's a floor tile and not in any spawn area
-                if not in_player_area and not in_stairs_area:
-                    floor_positions.append((x, y))
+        # logger.info(f"=== ENEMY GENERATION DEBUG START ===")
+        # logger.info(f"map_array shape: {map_array.shape} (height={height}, width={width})")
+        # logger.info(f"original_tiles dimensions: {len(original_tiles)}x{len(original_tiles[0])}")
+        # logger.info(f"Player spawn: ({player_spawn_x}, {player_spawn_y})")
+        # logger.info(f"Stairs spawn: ({stairs_spawn_x}, {stairs_spawn_y})")
         
-        # Filter to only reachable positions from player spawn
+        # original_tiles is [x][y] where x=0-55, y=0-31
+        # Verify dimensions
+        if len(original_tiles) != 56 or len(original_tiles[0]) != 32:
+            # logger.error(f"original_tiles has wrong dimensions: {len(original_tiles)}x{len(original_tiles[0])}, expected 56x32")
+            return []
+        
+        # Step 1: Find all valid floor tiles using ONLY original_tiles
+        floor_positions = []
+        floor_tile_count = 0
+        wall_tile_count = 0
+        agreement_mismatch_count = 0
+        spawn_area_excluded_count = 0
+        
+        for y in range(height):  # y = 0 to 31
+            for x in range(width):  # x = 0 to 55
+                # original_tiles is indexed as [x][y]
+                if x >= len(original_tiles) or y >= len(original_tiles[0]):
+                    continue
+                
+                tile = original_tiles[x][y]
+                
+                # ONLY check original_tiles - must be a walkable floor tile
+                if (tile[0x0] & 0x3) != 1:
+                    if (tile[0x0] & 0x3) == 0:  # Wall
+                        wall_tile_count += 1
+                    continue  # Not a floor tile
+                
+                floor_tile_count += 1
+
+                # ENFORCE AGREEMENT: map_array must agree with original_tiles
+                # If original_tiles says floor, map_array should be 1 (floor), 2 (player spawn), or 3 (stairs spawn)
+                # It should NEVER be 0 (wall)
+                if map_array[y, x] == 0:
+                    # They disagree - original_tiles says floor but map_array says wall
+                    agreement_mismatch_count += 1
+                    if agreement_mismatch_count <= 5:  # Log first 5 mismatches
+                        # logger.error(f"DATA INCONSISTENCY #{agreement_mismatch_count}: Tile ({x}, {y}) - original_tiles says FLOOR (tile[0x0]={tile[0x0]:02x}, &0x3={(tile[0x0] & 0x3)}) but map_array says WALL (value={map_array[y, x]})")
+                        pass
+                    continue
+
+                # Only accept actual floor tiles (value 1), not spawn areas (2 or 3)
+                if map_array[y, x] != 1:
+                    continue  # Skip spawn areas
+
+                # Exclude spawn areas (5x5 areas around player and stairs)
+                in_player_area = (player_spawn_x != -1 and player_spawn_y != -1 and
+                                abs(x - player_spawn_x) <= 2 and abs(y - player_spawn_y) <= 2)
+                in_stairs_area = (stairs_spawn_x != -1 and stairs_spawn_y != -1 and
+                                abs(x - stairs_spawn_x) <= 2 and abs(y - stairs_spawn_y) <= 2)
+
+                if in_player_area or in_stairs_area:
+                    spawn_area_excluded_count += 1
+                    continue
+
+                floor_positions.append((x, y))
+        
+        # logger.info(f"=== STEP 1: Floor Tile Analysis ===")
+        # logger.info(f"  Total floor tiles (original_tiles): {floor_tile_count}")
+        # logger.info(f"  Total wall tiles (original_tiles): {wall_tile_count}")
+        # logger.info(f"  Agreement mismatches (original_tiles=floor, map_array=wall): {agreement_mismatch_count}")
+        # logger.info(f"  Spawn area exclusions: {spawn_area_excluded_count}")
+        # logger.info(f"  Valid floor positions after Step 1: {len(floor_positions)}")
+        
+        # if len(floor_positions) > 0 and len(floor_positions) <= 20:
+        #     logger.info(f"  Sample floor positions: {floor_positions[:10]}")
+        
+        # Step 2: Filter to only reachable positions from player spawn
         if player_spawn_x != -1 and player_spawn_y != -1:
-            floor_positions = [pos for pos in floor_positions 
-                             if is_reachable_from_spawn(map_array, player_spawn, pos)]
+            reachable_count = 0
+            unreachable_count = 0
+            reachable_positions = []
+            for pos in floor_positions:
+                if is_reachable_from_spawn(map_array, player_spawn, pos):
+                    reachable_positions.append(pos)
+                    reachable_count += 1
+                else:
+                    unreachable_count += 1
+                    if unreachable_count <= 5:  # Log first 5 unreachable
+                        # logger.debug(f"  Unreachable position: {pos}")
+                        pass
+            floor_positions = reachable_positions
+            # logger.info(f"=== STEP 2: Reachability Check ===")
+            # logger.info(f"  Reachable positions: {reachable_count}")
+            # logger.info(f"  Unreachable positions: {unreachable_count}")
+            # logger.info(f"  Valid floor positions after Step 2: {len(floor_positions)}")
+        else:
+            # logger.warning("Player spawn is invalid, skipping reachability check")
+            pass
         
         if len(floor_positions) == 0:
-            logger.warning(f"No valid reachable floor positions found for enemy placement. Map size: {width}x{height}, Player spawn: {player_spawn}, Stairs spawn: {stairs_spawn}")
+            # logger.warning(f"=== RESULT: No valid floor positions found for enemy placement ===")
+            # logger.warning(f"  This map cannot spawn enemies!")
             return []
         
-        # Calculate enemy count based on difficulty
-        floor_tiles = len(floor_positions)
-        logger.debug(f"Found {floor_tiles} valid floor positions for enemy placement")
-        
-        # Method 1: Use density-based calculation
-        density_count = max(1, int(floor_tiles * config['enemy_density']))
-        
-        # Method 2: Use range-based calculation
+        # Step 3: Determine enemy count based on difficulty
+        config = self.DIFFICULTY_CONFIGS.get(difficulty, self.DIFFICULTY_CONFIGS['medium'])
         min_count, max_count = config['enemy_count_range']
-        range_count = random.randint(min_count, max_count)
+        num_enemies = min(random.randint(min_count, max_count), len(floor_positions))
         
-        # Use the smaller of the two to ensure we don't exceed available space
-        num_enemies = min(density_count, range_count, len(floor_positions))
+        # logger.info(f"=== STEP 3: Enemy Count Selection ===")
+        # logger.info(f"  Difficulty: {difficulty}")
+        # logger.info(f"  Count range: {min_count}-{max_count}")
+        # logger.info(f"  Selected count: {num_enemies}")
         
-        # Safety check: ensure we have positions to select from
-        if num_enemies <= 0 or not floor_positions:
-            logger.warning(f"Cannot generate enemies: num_enemies={num_enemies}, available_positions={len(floor_positions)}")
+        if num_enemies <= 0:
+            # logger.warning(f"=== RESULT: No enemies to spawn (count={num_enemies}) ===")
             return []
         
-        # Randomly select positions (already validated as reachable floor tiles)
+        # Step 4: Randomly select positions
         selected_positions = random.sample(floor_positions, num_enemies)
+        # logger.info(f"=== STEP 4: Position Selection ===")
+        # logger.info(f"  Selected {len(selected_positions)} positions: {selected_positions}")
         
-        # Enemy type weights (can be customized per difficulty)
-        enemy_type_weights = {
-            'easy': {'basic': 0.7, 'weak': 0.3},
-            'medium': {'basic': 0.4, 'aggressive': 0.4, 'patrol': 0.2},
-            'hard': {'aggressive': 0.3, 'patrol': 0.3, 'elite': 0.3, 'boss': 0.1}
-        }
-        
-        weights = enemy_type_weights.get(difficulty, enemy_type_weights['medium'])
-        enemy_types = config['enemy_types']
-        
-        # Ensure all enemy types have weights (fallback to equal distribution if missing)
-        weight_list = []
-        for enemy_type in enemy_types:
-            weight = weights.get(enemy_type, 0.1)
-            weight_list.append(max(weight, 0.01))  # Ensure minimum weight to avoid zero
-        
-        # Enemy stats by type
-        enemy_stats = {
-            'weak': {'hp': 5, 'damage': 1},
-            'basic': {'hp': 10, 'damage': 2},
-            'aggressive': {'hp': 15, 'damage': 3},
-            'patrol': {'hp': 12, 'damage': 2},
-            'elite': {'hp': 25, 'damage': 5},
-            'boss': {'hp': 50, 'damage': 8}
-        }
-        
-        # Create enemies from validated positions (already checked for reachability and floor tiles)
+        # Step 5: Create simple enemy objects with FINAL validation using original_tiles
         enemies = []
+        validation_failed = []
         for x, y in selected_positions:
-            # Weighted random selection of enemy type
-            enemy_type = random.choices(enemy_types, weights=weight_list)[0]
-            stats = enemy_stats.get(enemy_type, enemy_stats['basic'])
-            
-            enemies.append({
-                'x': int(x),
-                'y': int(y),
-                'type': enemy_type,
-                'hp': stats['hp'],
-                'max_hp': stats['hp'],
-                'damage': stats['damage']
-            })
+            # Final validation: double-check with original_tiles
+            if x < len(original_tiles) and y < len(original_tiles[0]):
+                tile = original_tiles[x][y]
+                tile_value = tile[0x0]
+                tile_walkable = (tile_value & 0x3) == 1
+                map_value = map_array[y, x] if y < map_array.shape[0] and x < map_array.shape[1] else -1
+                
+                if tile_walkable:  # Must be floor
+                    enemies.append({'x': int(x), 'y': int(y)})
+                    # logger.debug(f"  ✓ Enemy at ({x}, {y}): original_tiles[0x0]={tile_value:02x} (walkable), map_array={map_value}")
+                else:
+                    validation_failed.append((x, y, f"not floor (tile[0x0]={tile_value:02x}, &0x3={tile_value & 0x3})"))
+                    # logger.warning(f"  ✗ Enemy at ({x}, {y}) failed final validation - {validation_failed[-1][2]}")
+            else:
+                validation_failed.append((x, y, f"out of bounds (x={x} >= {len(original_tiles)} or y={y} >= {len(original_tiles[0])})"))
+                # logger.warning(f"  ✗ Enemy at ({x}, {y}) is out of bounds")
+        
+        # logger.info(f"=== STEP 5: Final Validation ===")
+        # logger.info(f"  Passed validation: {len(enemies)}")
+        # logger.info(f"  Failed validation: {len(validation_failed)}")
+        # if validation_failed:
+        #     logger.warning(f"  Failed positions: {validation_failed}")
+        
+        # if len(enemies) < len(selected_positions):
+        #     logger.warning(f"Removed {len(selected_positions) - len(enemies)} enemies that failed final validation")
+        
+        # logger.info(f"=== ENEMY GENERATION DEBUG END ===")
+        # logger.info(f"Final enemy count: {len(enemies)}")
+        # if enemies:
+        #     logger.info(f"Enemy positions: {enemies}")
         
         return enemies
-
     def generate_map(self,
                      layout_type: int = 1,
                      room_count: int = 5,
@@ -466,7 +502,7 @@ class MysteryDungeonMapGenerator:
             difficulty_distribution: Dict like {'easy': 0.3, 'medium': 0.5, 'hard': 0.2}
                                     If None, uses equal distribution
         """
-        logger.info(f"Generating {num_maps} dungeon maps...")
+        # logger.info(f"Generating {num_maps} dungeon maps...")
 
         dataset_data = []
         seen_hashes = set()
@@ -558,9 +594,10 @@ class MysteryDungeonMapGenerator:
                 dataset_data.append(dataset_entry)
             
             except Exception as e:
-                logger.error(f"Error generating map {i}: {e}")
+                # logger.error(f"Error generating map {i}: {e}")
+                pass
         
-        logger.info(f"Successfully generated {len(dataset_data)} unique maps")
+        # logger.info(f"Successfully generated {len(dataset_data)} unique maps")
 
         dataset = Dataset.from_list(dataset_data, features=self.features)
         return dataset
@@ -571,7 +608,7 @@ class MysteryDungeonMapGenerator:
         
         save_path = self.output_dir / dataset_name
         dataset.save_to_disk(str(save_path))
-        logger.info(f"Dataset saved to {save_path}")
+        # logger.info(f"Dataset saved to {save_path}")
         return save_path
     
     def upload_to_hub(self,
@@ -579,9 +616,9 @@ class MysteryDungeonMapGenerator:
                       repo_id: str):
         try:
             dataset.push_to_hub(repo_id)
-            logger.info(f"Dataset uploaded to https://huggingface.co/datasets/{repo_id}")
+            # logger.info(f"Dataset uploaded to https://huggingface.co/datasets/{repo_id}")
         except Exception as e:
-            logger.error(f"Error uploading to Hub: {e}")
+            # logger.error(f"Error uploading to Hub: {e}")
             raise
     
     def create_train_val_split(self,
