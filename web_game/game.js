@@ -112,10 +112,6 @@ async function loadFloor(floorIndex) {
             enemies.push({
                 x: enemy.x,
                 y: enemy.y,
-                type: enemy.type,
-                hp: enemy.hp,
-                max_hp: enemy.max_hp,
-                damage: enemy.damage,
                 onFloor: isOnFloor, // Track if enemy has entered floor area
                 trapped: isOnFloor  // If enemy starts on floor, they're immediately trapped
             });
@@ -171,10 +167,7 @@ function isValidEnemyMove(enemy, newX, newY) {
         return false;
     }
     
-    // Cannot move into walls
-    if (currentMap.tiles[newY][newX] === 0) {
-        return false;
-    }
+    // Enemies can now move through walls - removed wall check
     
     // Check collision with player
     if (isPositionOccupiedByPlayer(newX, newY)) {
@@ -186,12 +179,7 @@ function isValidEnemyMove(enemy, newX, newY) {
         return false;
     }
     
-    // If enemy is trapped (has entered floor area), they can only move to floor tiles
-    if (enemy.trapped) {
-        return currentMap.tiles[newY][newX] === 1; // Only floor tiles allowed
-    }
-    
-    // If enemy hasn't entered floor yet, they can move anywhere (walls excluded above)
+    // Enemies can move through walls regardless of trapped state
     return true;
 }
 
@@ -391,17 +379,11 @@ function draw() {
             const [screenEx, screenEy] = worldToScreen(enemy.x, enemy.y);
             
             // Color based on enemy type
-            let enemyColor = '#FF6B6B'; // Default red
-            if (enemy.type === 'weak') enemyColor = '#FFA07A';
-            else if (enemy.type === 'basic') enemyColor = '#FF6B6B';
-            else if (enemy.type === 'aggressive') enemyColor = '#DC143C';
-            else if (enemy.type === 'patrol') enemyColor = '#8B0000';
-            else if (enemy.type === 'elite') enemyColor = '#4B0082';
-            else if (enemy.type === 'boss') enemyColor = '#FF00FF'; // Magenta
+            // Simple enemy rendering - just red color
+            const enemyColor = '#FF6B6B'; // Red for all enemies
             
             // Visual indicator if enemy is trapped on floor
             if (enemy.trapped) {
-                // Add a subtle border or different shade to show they're trapped
                 ctx.fillStyle = enemyColor;
                 ctx.fillRect(screenEx, screenEy, TILE_SIZE, TILE_SIZE);
                 // Add a border to indicate trapped state
