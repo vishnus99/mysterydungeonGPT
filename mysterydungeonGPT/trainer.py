@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 from peft import LoraConfig, TaskType
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments
 from datasets import load_dataset
-from helpers import format_map_for_training, train, evaluate
+from mysterydungeonGPT.helpers import format_map_for_training, train, evaluate
 
 
 class MapDataset(Dataset):
@@ -64,7 +64,7 @@ def setup_and_train(
     num_epochs=1,
     learning_rate=2e-4,
     gradient_accumulation_steps=1,
-    maxx_grad_norm=1.0,
+    max_grad_norm=1.0,
     eval_steps=50,
     save_steps=100,
     max_context_length=6144,
@@ -98,17 +98,28 @@ def setup_and_train(
     #dataset
     dataset = load_dataset("teamgas/mysterydungeondata")
 
+    print("Available splits:", list(dataset.keys()))
+
+    # If validation split doesn't exist, create it from train
+    if 'validation' not in dataset:
+        # Split the train dataset into train and validation
+        split_dataset = dataset['train'].train_test_split(test_size=0.2, seed=42)
+        dataset['train'] = split_dataset['train']
+        dataset['validation'] = split_dataset['test']
+        print(f"Created validation split: {len(dataset['validation'])} samples")
+
+
     #train and val datasets
     train_dataset = MapDataset(
         hf_dataset=dataset['train'],
         tokenizer=tokenizer,
-        max_context_length=6144
+        max_context_length=max_context_length
     )
 
     val_dataset = MapDataset(
         hf_dataset=dataset['validation'],
         tokenizer=tokenizer,
-        max_context_length=6144
+        max_context_length=max_context_length
     )
 
     #lora config

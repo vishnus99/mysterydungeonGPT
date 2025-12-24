@@ -14,7 +14,7 @@ image = (
         "pillow"
     )
     .apt_install("git")
-    .run_commands("git clone https://github.com/vishnus99/mysterydungeonGPT.git /root/mysterydungeonGPT")
+    .add_local_python_source("mysterydungeonGPT")
 )
 
 volume = modal.Volume.from_name("mystery-dungeon-checkpoints", create_if_missing=True)
@@ -23,14 +23,17 @@ volume = modal.Volume.from_name("mystery-dungeon-checkpoints", create_if_missing
     image=image,
     gpu="A10G",
     volumes={"/checkpoints": volume},
-    timeout=3600
+    timeout=3600,
+    secrets=[modal.Secret.from_name("huggingface")]
 )
 
 def train_model():
-    import sys
     import os
 
-    sys.path.insert(0, "/root/mysterydungeonGPT")
+    hf_token = os.environ.get("HF_TOKEN")
+    if hf_token:
+        from huggingface_hub import login
+        login(token=hf_token)
 
     from mysterydungeonGPT.trainer import setup_and_train
 
