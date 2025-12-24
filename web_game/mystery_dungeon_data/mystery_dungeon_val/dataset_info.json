@@ -1,0 +1,71 @@
+{
+  "citation": "",
+  "description": "",
+  "features": {
+    "image": {
+      "_type": "Image"
+    },
+    "map_id": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "width": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "height": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "complexity": {
+      "dtype": "float32",
+      "_type": "Value"
+    },
+    "room_count": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "corridor_length": {
+      "dtype": "float32",
+      "_type": "Value"
+    },
+    "difficulty": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "generation_params": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "hash": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "map_array": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "player_spawn_x": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "player_spawn_y": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "stairs_spawn_x": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "stairs_spawn_y": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "enemies": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": ""
+}

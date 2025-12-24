@@ -21,7 +21,7 @@ volume = modal.Volume.from_name("mystery-dungeon-checkpoints", create_if_missing
 
 @app.function(
     image=image,
-    gpu="A10G",
+    gpu="A100",
     volumes={"/checkpoints": volume},
     timeout=3600,
     secrets=[modal.Secret.from_name("huggingface")]
@@ -42,14 +42,14 @@ def train_model():
 
     trained_model = setup_and_train(
         output_dir=output_dir,
-        batch_size=4,
+        batch_size=1,
         num_epochs=1,
         learning_rate=2e-4,
-        gradient_accumulation_steps=1,
+        gradient_accumulation_steps=4,
         max_grad_norm=1.0,
         eval_steps=50,
         save_steps=100,
-        max_context_length=6144,
+        max_context_length=2048,
         device_map="auto"
     )
 

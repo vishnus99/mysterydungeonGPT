@@ -24,7 +24,7 @@ class MapDataset(Dataset):
             {"role": "assistant", "content": json_output}
         ] 
         
-        user_only = tokenizer.apply_chat_template(
+        user_only = self.tokenizer.apply_chat_template(
             [{"role": "user", "content": prompt}],
             tokenize=True,
             return_dict=True,
@@ -33,7 +33,7 @@ class MapDataset(Dataset):
         )
         user_length = user_only['input_ids'].shape[1]
 
-        full_tokenized = tokenizer.apply_chat_template(
+        full_tokenized = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
             return_dict=True,
@@ -47,7 +47,7 @@ class MapDataset(Dataset):
         labels = input_ids.clone()
         labels[:user_length] = -100
 
-        pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+        pad_token_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id
         padding_mask = (input_ids == pad_token_id)
         labels[padding_mask] = -100
 
@@ -60,14 +60,14 @@ class MapDataset(Dataset):
 
 def setup_and_train(
     output_dir="./mysterydungeonGPT/trained_model/qwen3-lora-finetuned",
-    batch_size=4,
+    batch_size=1,
     num_epochs=1,
     learning_rate=2e-4,
-    gradient_accumulation_steps=1,
+    gradient_accumulation_steps=4,
     max_grad_norm=1.0,
     eval_steps=50,
     save_steps=100,
-    max_context_length=6144,
+    max_context_length=2048,
     device_map="auto"
 ):
     """

@@ -2,7 +2,6 @@
 __pycache__/
 *.py[codz]
 *$py.class
-*.json
 
 # C extensions
 *.so
@@ -209,6 +208,8 @@ __marimo__/
 
 
 
-#Project-specific directories
+#Project-specific directories and files
 exported_maps/
 example_map_viewer.py
+mysterydungeonGPT/trained_model/get_finetuned_model.txt
+web_game/maps/*
