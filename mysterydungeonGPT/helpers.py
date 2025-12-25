@@ -1,10 +1,12 @@
 import json
 import random
+import os
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from peft import get_peft_model
+import wandb
 
 def format_map_for_training(map):
     room_count = map['room_count']
@@ -17,7 +19,7 @@ def format_map_for_training(map):
     # Try to get map_array, fallback to image extraction
     map_array = map.get('map_array')
 
-    map_width = map.get('width', 56) 
+    map_width = map.get('width', 32) 
     map_height = map.get('height', 32)
     
     # If map_array is a string with numpy format, extract from image instead
@@ -156,7 +158,7 @@ def format_map_for_training(map):
         'tiles':map_array,
         'player_spawn':[player_x, player_y],
         'stairs_spawn':[stairs_x, stairs_y],
-        'width':56,
+        'width':32,
         'height':32,
         'difficulty':difficulty,
         'enemies':enemies
@@ -209,6 +211,36 @@ def train(
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
+    # Initialize Weights & Biases with error handling
+    wandb_initialized = False
+    try:
+        wandb_api_key = os.environ.get("WANDB_API_KEY")
+        if wandb_api_key:
+            wandb.init(
+                project="mystery-dungeon-gpt",
+                name=f"qwen3-0.6b-lora-32x32",
+                config={
+                    "model": "Qwen3-0.6B",
+                    "batch_size": batch_size,
+                    "num_epochs": num_epochs,
+                    "learning_rate": learning_rate,
+                    "gradient_accumulation_steps": gradient_accumulation_steps,
+                    "max_grad_norm": max_grad_norm,
+                    "max_context_length": train_dataset.max_context_length if hasattr(train_dataset, 'max_context_length') else None,
+                    "train_size": len(train_dataset),
+                    "val_size": len(val_dataset)
+                }
+            )
+            wandb_initialized = True
+            print("Weights & Biases initialized successfully")
+        else:
+            print("WANDB_API_KEY not found in environment - wandb logging disabled")
+            wandb.init(mode="disabled")
+    except Exception as e:
+        print(f"Failed to initialize wandb: {e}")
+        print("Continuing training without wandb logging")
+        wandb.init(mode="disabled")
+
     num_training_steps = len(train_dataloader) * num_epochs
     
     global_step = 0
@@ -236,6 +268,14 @@ def train(
             loss = loss / gradient_accumulation_steps
             loss.backward()
 
+            if global_step % 10 == 0 and wandb_initialized:  # Log every 10 steps to avoid too much logging
+                wandb.log({
+                    "train/loss": loss.item() * gradient_accumulation_steps,
+                    "train/learning_rate": optimizer.param_groups[0]['lr'],
+                    "train/step": global_step,
+                    "train/epoch": epoch + 1,
+                })
+
             if (batch_idx + 1) % gradient_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(),
@@ -250,6 +290,13 @@ def train(
                 if eval_steps and global_step % eval_steps == 0:
                     val_loss = evaluate(model, val_dataloader, device)
                     model.train()
+                    
+                    # Log validation loss to wandb
+                    if wandb_initialized:
+                        wandb.log({
+                            "val/loss": val_loss,
+                            "val/step": global_step,
+                        })
                 
                 if save_steps and global_step % save_steps == 0:
                     if output_dir:
@@ -265,12 +312,24 @@ def train(
 
         val_loss = evaluate(model, val_dataloader, device)
 
+        if wandb_initialized:
+            wandb.log({
+                "epoch/train_loss": avg_epoch_loss,
+                "epoch/val_loss": val_loss,
+                "epoch": epoch + 1
+            })
+
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             if output_dir:
                 best_model_path = f"{output_dir}/best_model"
                 model.save_pretrained(best_model_path)
                 print(f"Saved best model (val_loss={val_loss:.4f}) to {best_model_path}")
+    
+    # Finish wandb run
+    if wandb_initialized:
+        wandb.finish()
+        print("Weights & Biases run completed")
     
     return model
 

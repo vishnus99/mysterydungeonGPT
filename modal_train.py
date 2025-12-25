@@ -11,7 +11,8 @@ image = (
         "accelerate",
         "tqdm",
         "numpy",
-        "pillow"
+        "pillow",
+        "wandb"
     )
     .apt_install("git")
     .add_local_python_source("mysterydungeonGPT")
@@ -23,8 +24,11 @@ volume = modal.Volume.from_name("mystery-dungeon-checkpoints", create_if_missing
     image=image,
     gpu="A100",
     volumes={"/checkpoints": volume},
-    timeout=3600,
-    secrets=[modal.Secret.from_name("huggingface")]
+    timeout=86400,
+    secrets=[
+        modal.Secret.from_name("huggingface"),
+        modal.Secret.from_name("wandb")
+    ]
 )
 
 def train_model():

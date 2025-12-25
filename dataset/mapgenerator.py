@@ -217,8 +217,8 @@ class MysteryDungeonMapGenerator:
         
         # original_tiles is [x][y] where x=0-55, y=0-31
         # Verify dimensions
-        if len(original_tiles) != 56 or len(original_tiles[0]) != 32:
-            # logger.error(f"original_tiles has wrong dimensions: {len(original_tiles)}x{len(original_tiles[0])}, expected 56x32")
+        if len(original_tiles) != 32 or len(original_tiles[0]) != 32:
+            # logger.error(f"original_tiles has wrong dimensions: {len(original_tiles)}x{len(original_tiles[0])}, expected 32x32")
             return []
         
         # Step 1: Find all valid floor tiles using ONLY original_tiles
@@ -391,7 +391,7 @@ class MysteryDungeonMapGenerator:
         map_array = self.tiles_to_numpy(DungeonData.list_tiles)
 
         corridor_length = 0.0
-        for x in range(56):
+        for x in range(32):
             for y in range(32):
                 tile = DungeonData.list_tiles[x][y]
                 # Use same check as dungeon algorithm: & 0x3 == 1 means walkable floor
@@ -433,7 +433,7 @@ class MysteryDungeonMapGenerator:
         )
 
         metadata = {
-            'width': 56,
+            'width': 32,
             'height': 32,
             'room_count': Properties.nb_rooms,
             'layout_type': layout_type,
@@ -527,12 +527,19 @@ class MysteryDungeonMapGenerator:
         
         random.shuffle(difficulty_list)
 
-        for i in range(num_maps):
-            # width = np.random.randint(*width_range)
-            # height = np.random.randint(*height_range)
+        # Keep generating until we have num_maps valid maps
+        attempts = 0
+        max_attempts = num_maps * 20  # Safety limit: allow up to 20x attempts
+        
+        while len(dataset_data) < num_maps and attempts < max_attempts:
+            attempts += 1
+            
+            # Cycle through difficulty list to maintain distribution
+            difficulty_idx = len(dataset_data) % len(difficulty_list)
+            difficulty = difficulty_list[difficulty_idx]
+            
             room_count = np.random.randint(*room_range)
             complexity = np.random.uniform(*complexity_range)
-            difficulty = difficulty_list[i]  # Get difficulty for this map
 
             try:
                 layout_type = np.random.randint(1, 8)
@@ -562,19 +569,19 @@ class MysteryDungeonMapGenerator:
                 )
                 
                 if not is_map_playable(map_array, enemies_list, player_spawn, stairs_spawn):
-                    print(f'Skipping unplayable map: Map {i} (unreachable enemy or stairs)')
-                    continue
+                    continue  # Skip unplayable maps and try again
 
                 map_hash = self.calculate_hash(map_array)
                 if map_hash in seen_hashes:
-                    continue
+                    continue  # Skip duplicates and try again
+                
                 seen_hashes.add(map_hash)
 
                 img = self.map_array_to_image(map_array)
 
                 dataset_entry = {
                     'image': img,
-                    'map_id': f"map_{i:06d}",
+                    'map_id': f"map_{len(dataset_data):06d}",
                     'width': metadata['width'],
                     'height': metadata['height'],
                     'complexity': metadata['complexity'],
@@ -592,10 +599,20 @@ class MysteryDungeonMapGenerator:
                 }
 
                 dataset_data.append(dataset_entry)
+                
+                # Progress indicator
+                if len(dataset_data) % 100 == 0:
+                    print(f"Generated {len(dataset_data)}/{num_maps} valid maps (attempts: {attempts}, success rate: {len(dataset_data)/attempts*100:.1f}%)")
             
             except Exception as e:
-                # logger.error(f"Error generating map {i}: {e}")
+                # logger.error(f"Error generating map: {e}")
                 pass
+        
+        if len(dataset_data) < num_maps:
+            print(f"Warning: Only generated {len(dataset_data)}/{num_maps} valid maps after {attempts} attempts")
+            print(f"  Success rate: {len(dataset_data)/attempts*100:.1f}%")
+            print(f"  This might indicate too many unplayable maps or duplicates")
+            print(f"  Consider adjusting room_range or complexity_range")
         
         # logger.info(f"Successfully generated {len(dataset_data)} unique maps")
 
@@ -636,10 +653,10 @@ def main():
     )
 
     dataset = generator.generate_dataset(
-        num_maps = 1000,
+        num_maps = 5000,
         width_range = (20, 50),
         height_range = (20, 50),
-        room_range = (4, 7),
+        room_range = (3, 6),
         complexity_range = (0.2, 0.8),
         difficulty_distribution = {'medium': 1.0}
     )
