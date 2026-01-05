@@ -67,7 +67,7 @@ def setup_and_train(
     max_grad_norm=1.0,
     eval_steps=50,
     save_steps=100,
-    max_context_length=2048,
+    max_context_length=6144,
     device_map="auto"
 ):
     """
@@ -125,8 +125,8 @@ def setup_and_train(
     #lora config
     lora_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
-        r=8, #Rank of low rank adaptation
-        lora_alpha=16, #Scaling parameter (usually 2x rank)
+        r=16, #Rank of low rank adaptation
+        lora_alpha=32, #Scaling parameter (usually 2x rank)
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"], #Which modules to apply LoRA to (attention and MoE layers)
         lora_dropout=0.1,
         bias="none",

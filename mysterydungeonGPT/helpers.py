@@ -1,12 +1,72 @@
 import json
 import random
 import os
+import re
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from peft import get_peft_model
 import wandb
+
+def extract_json_from_text(text):
+    """
+    Extract JSON object from text, handling incomplete JSON.
+    
+    Args:
+        text: Text containing JSON object
+    
+    Returns:
+        Parsed JSON dictionary or None if extraction fails
+    """
+    # Try to find JSON object
+    json_match = re.search(r'\{.*\}', text, re.DOTALL)
+    if not json_match:
+        print("No JSON found in generated content")
+        print(f"First 500 chars: {text[:500]}")
+        return None
+    
+    json_str = json_match.group()
+    
+    # Try to parse
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError as e:
+        print(f"JSON parse error: {e}")
+        print(f"JSON string length: {len(json_str)}")
+        print(f"Last 200 chars: {json_str[-200:]}")
+        
+        # Try to fix common issues
+        # Remove trailing commas before closing braces/brackets
+        json_str = re.sub(r',\s*}', '}', json_str)
+        json_str = re.sub(r',\s*]', ']', json_str)
+        
+        try:
+            return json.loads(json_str)
+        except:
+            print("Could not fix JSON")
+            return None
+
+def coordinates_to_grid(walkable_coords, width=32, height=32):
+    """
+    Convert list of walkable coordinates back to full grid array.
+    
+    Args:
+        walkable_coords: List of [x, y] coordinates representing walkable tiles
+        width: Grid width (default 32)
+        height: Grid height (default 32)
+    
+    Returns:
+        2D numpy array where 0=wall, 1=floor
+    """
+    grid = np.zeros((height, width), dtype=np.uint8)
+    
+    for coord in walkable_coords:
+        x, y = coord
+        if 0 <= x < width and 0 <= y < height:
+            grid[y, x] = 1  # Mark as walkable floor
+    
+    return grid
 
 def format_map_for_training(map):
     room_count = map['room_count']
@@ -143,25 +203,36 @@ def format_map_for_training(map):
         complexity = round(complexity, 2)
     )
 
-    # Now process the array
+    # Convert map_array to numpy if needed and normalize spawn points to floors
     if isinstance(map_array, np.ndarray):
+        # Convert spawn points (2, 3) to floors (1) for coordinate extraction
         map_array = np.where((map_array == 2) | (map_array == 3), 1, map_array)
-        map_array = map_array.tolist()
     elif isinstance(map_array, list):
-        map_array = [[1 if (tile == 2 or tile == 3) else tile for tile in row] for row in map_array]
+        map_array = np.array(map_array)
+        map_array = np.where((map_array == 2) | (map_array == 3), 1, map_array)
     else:
         map_array = np.array(map_array)
         map_array = np.where((map_array == 2) | (map_array == 3), 1, map_array)
-        map_array = map_array.tolist()
 
+    # Extract only walkable coordinates (where value == 1)
+    walkable_coords = []
+    for y in range(map_height):
+        for x in range(map_width):
+            if map_array[y, x] == 1:  # Walkable floor tile
+                walkable_coords.append([x, y])  # Store as [x, y] format
+    
+    # Sort coordinates for consistency (row-major order: sort by y first, then x)
+    walkable_coords.sort(key=lambda coord: (coord[1], coord[0]))
+
+    # Create coordinate-based JSON format
     game_dict = {
-        'tiles':map_array,
-        'player_spawn':[player_x, player_y],
-        'stairs_spawn':[stairs_x, stairs_y],
-        'width':32,
-        'height':32,
-        'difficulty':difficulty,
-        'enemies':enemies
+        'walkable_tiles': walkable_coords,  # List of [x, y] coordinates
+        'player_spawn': [player_x, player_y],
+        'stairs_spawn': [stairs_x, stairs_y],
+        'width': 32,
+        'height': 32,
+        'difficulty': difficulty,
+        'enemies': enemies
     }
 
     json_string = json.dumps(game_dict)
