@@ -215,3 +215,5 @@ example_map_viewer.py
 mysterydungeonGPT/trained_model/get_finetuned_model.txt
 web_game/maps/*
 mystery_dungeon_data/
+mysterydungeonGPT/trained_model/final_model/
+final_model/
