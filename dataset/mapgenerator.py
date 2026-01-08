@@ -20,7 +20,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.RandomGen import RandomGenerator
-from src.DungeonAlgorithm import Properties, DungeonData, generate_floor
+from src.DungeonAlgorithm import Properties, DungeonData, StatusData, generate_floor
 
 def is_map_playable(map_array: np.ndarray, enemies: List[Dict], player_spawn: Tuple[int, int], stairs_spawn: Tuple[int, int]) -> bool:
     """
@@ -146,7 +146,7 @@ class MysteryDungeonMapGenerator:
     def __init__(self,
                  output_dir: str = "./maps",
                  image_size: Tuple[int,int] = (256, 256),
-                 map_size: Tuple[int,int] = (32, 32),
+                 map_size: Tuple[int,int] = (56, 32),
                  hf_repo_id: str = "teamgas/mysterydungeondata"):
 
         self.output_dir = Path(output_dir)
@@ -217,8 +217,8 @@ class MysteryDungeonMapGenerator:
         
         # original_tiles is [x][y] where x=0-55, y=0-31
         # Verify dimensions
-        if len(original_tiles) != 32 or len(original_tiles[0]) != 32:
-            # logger.error(f"original_tiles has wrong dimensions: {len(original_tiles)}x{len(original_tiles[0])}, expected 32x32")
+        if len(original_tiles) != 56 or len(original_tiles[0]) != 32:
+            # logger.error(f"original_tiles has wrong dimensions: {len(original_tiles)}x{len(original_tiles[0])}, expected 56x32")
             return []
         
         # Step 1: Find all valid floor tiles using ONLY original_tiles
@@ -382,6 +382,12 @@ class MysteryDungeonMapGenerator:
         DungeonData.clear_tiles()
 
         generate_floor()
+        
+        # Get actual room count after generation (accounts for random variation)
+        actual_room_count = getattr(StatusData, 'actual_nb_rooms', Properties.nb_rooms)
+        if actual_room_count == 0:
+            # Fallback: count rooms from map_array if StatusData wasn't set
+            actual_room_count = Properties.nb_rooms
 
         player_spawn_x = DungeonData.player_spawn_x
         player_spawn_y = DungeonData.player_spawn_y
@@ -391,7 +397,7 @@ class MysteryDungeonMapGenerator:
         map_array = self.tiles_to_numpy(DungeonData.list_tiles)
 
         corridor_length = 0.0
-        for x in range(32):
+        for x in range(56):
             for y in range(32):
                 tile = DungeonData.list_tiles[x][y]
                 # Use same check as dungeon algorithm: & 0x3 == 1 means walkable floor
@@ -399,9 +405,10 @@ class MysteryDungeonMapGenerator:
                 if (tile[0x0] & 0x3) == 1 and (tile[0x7] == 0xFF or tile[0x7] == 0xFE):
                     corridor_length += 1.0
 
-        # Set spawn points as 5x5 areas
+        # Set spawn points as 5x5 areas and validate coordinates
         if player_spawn_x != -1 and player_spawn_y != -1:
             # Create a 5x5 area around the spawn point
+            floor_tiles_in_area = []
             for dy in range(-2, 3):  # -2 to +2 (5 pixels)
                 for dx in range(-2, 3):  # -2 to +2 (5 pixels)
                     ny = player_spawn_y + dy
@@ -410,9 +417,29 @@ class MysteryDungeonMapGenerator:
                     if 0 <= ny < map_array.shape[0] and 0 <= nx < map_array.shape[1]:
                         if map_array[ny, nx] == 1:  # Only overwrite floor tiles
                             map_array[ny, nx] = 2
+                            floor_tiles_in_area.append((nx, ny))
+            
+            # Validate that center coordinate is on a floor tile (value 1 or 2)
+            # If not, find the nearest floor tile within the 5x5 area
+            if map_array[player_spawn_y, player_spawn_x] not in [1, 2]:
+                if floor_tiles_in_area:
+                    # Find nearest floor tile to center using Manhattan distance
+                    center = (player_spawn_x, player_spawn_y)
+                    nearest = min(floor_tiles_in_area, 
+                                key=lambda pos: abs(pos[0] - center[0]) + abs(pos[1] - center[1]))
+                    player_spawn_x, player_spawn_y = nearest
+                    # Ensure the new center is marked as player spawn
+                    if map_array[player_spawn_y, player_spawn_x] == 1:
+                        map_array[player_spawn_y, player_spawn_x] = 2
+                else:
+                    # No floor tiles in 5x5 area - this shouldn't happen but handle it
+                    print(f"WARNING: No floor tiles found in 5x5 area around player spawn ({player_spawn_x}, {player_spawn_y})")
+                    player_spawn_x = -1
+                    player_spawn_y = -1
         
         if stairs_spawn_x != -1 and stairs_spawn_y != -1:
             # Create a 5x5 area around the stairs spawn point
+            floor_tiles_in_area = []
             for dy in range(-2, 3):  # -2 to +2 (5 pixels)
                 for dx in range(-2, 3):  # -2 to +2 (5 pixels)
                     ny = stairs_spawn_y + dy
@@ -421,6 +448,45 @@ class MysteryDungeonMapGenerator:
                     if 0 <= ny < map_array.shape[0] and 0 <= nx < map_array.shape[1]:
                         if map_array[ny, nx] == 1:  # Only overwrite floor tiles
                             map_array[ny, nx] = 3
+                            floor_tiles_in_area.append((nx, ny))
+            
+            # Validate that center coordinate is on a floor tile (value 1 or 3)
+            # If not, find the nearest floor tile within the 5x5 area
+            if map_array[stairs_spawn_y, stairs_spawn_x] not in [1, 3]:
+                if floor_tiles_in_area:
+                    # Find nearest floor tile to center using Manhattan distance
+                    center = (stairs_spawn_x, stairs_spawn_y)
+                    nearest = min(floor_tiles_in_area,
+                                key=lambda pos: abs(pos[0] - center[0]) + abs(pos[1] - center[1]))
+                    stairs_spawn_x, stairs_spawn_y = nearest
+                    # Ensure the new center is marked as stairs spawn
+                    if map_array[stairs_spawn_y, stairs_spawn_x] == 1:
+                        map_array[stairs_spawn_y, stairs_spawn_x] = 3
+                else:
+                    # No floor tiles in 5x5 area - this shouldn't happen but handle it
+                    print(f"WARNING: No floor tiles found in 5x5 area around stairs spawn ({stairs_spawn_x}, {stairs_spawn_y})")
+                    stairs_spawn_x = -1
+                    stairs_spawn_y = -1
+
+        # Validate spawn coordinates are on floor tiles before storing
+        # Final validation: ensure spawn coordinates correspond to floor tiles in map_array
+        if player_spawn_x != -1 and player_spawn_y != -1:
+            if not (0 <= player_spawn_x < map_array.shape[1] and 
+                    0 <= player_spawn_y < map_array.shape[0] and
+                    map_array[player_spawn_y, player_spawn_x] in [1, 2]):
+                # Spawn coordinate is not on a floor tile - invalidate it
+                print(f"WARNING: Player spawn ({player_spawn_x}, {player_spawn_y}) is not on a floor tile, invalidating")
+                player_spawn_x = -1
+                player_spawn_y = -1
+        
+        if stairs_spawn_x != -1 and stairs_spawn_y != -1:
+            if not (0 <= stairs_spawn_x < map_array.shape[1] and 
+                    0 <= stairs_spawn_y < map_array.shape[0] and
+                    map_array[stairs_spawn_y, stairs_spawn_x] in [1, 3]):
+                # Spawn coordinate is not on a floor tile - invalidate it
+                print(f"WARNING: Stairs spawn ({stairs_spawn_x}, {stairs_spawn_y}) is not on a floor tile, invalidating")
+                stairs_spawn_x = -1
+                stairs_spawn_y = -1
 
         # Generate enemies based on difficulty
         # Pass original tiles for validation to ensure enemies only spawn on actual floor tiles
@@ -433,9 +499,9 @@ class MysteryDungeonMapGenerator:
         )
 
         metadata = {
-            'width': 32,
+            'width': 56,
             'height': 32,
-            'room_count': Properties.nb_rooms,
+            'room_count': actual_room_count,  # Use actual count, not requested count
             'layout_type': layout_type,
             'complexity': complexity,
             'difficulty': difficulty,
@@ -579,6 +645,10 @@ class MysteryDungeonMapGenerator:
 
                 img = self.map_array_to_image(map_array)
 
+                # Convert map_array to JSON string for reliable storage
+                # This ensures it can be reconstructed exactly, without truncation
+                map_array_json = json.dumps(map_array.tolist())
+                
                 dataset_entry = {
                     'image': img,
                     'map_id': f"map_{len(dataset_data):06d}",
@@ -590,7 +660,7 @@ class MysteryDungeonMapGenerator:
                     'difficulty': metadata['difficulty'],
                     'generation_params': metadata['generation_params'],
                     'hash': map_hash,
-                    'map_array': map_array,
+                    'map_array': map_array_json,  # Store as JSON string for reliable reconstruction
                     'player_spawn_x': metadata.get('player_spawn_x', -1) or -1,
                     'player_spawn_y': metadata.get('player_spawn_y', -1) or -1,
                     'stairs_spawn_x': metadata.get('stairs_spawn_x', -1) or -1,
@@ -648,7 +718,7 @@ def main():
     generator = MysteryDungeonMapGenerator(
         output_dir="./mystery_dungeon_data",
         image_size=(256, 256),
-        map_size=(32, 32),
+        map_size=(56, 32),
         hf_repo_id="teamgas/mysterydungeondata"
     )
 
@@ -656,7 +726,7 @@ def main():
         num_maps = 5000,
         width_range = (20, 50),
         height_range = (20, 50),
-        room_range = (3, 6),
+        room_range = (6, 12),
         complexity_range = (0.2, 0.8),
         difficulty_distribution = {'medium': 1.0}
     )

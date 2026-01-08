@@ -125,8 +125,8 @@ def setup_and_train(
     #lora config
     lora_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
-        r=16, #Rank of low rank adaptation
-        lora_alpha=32, #Scaling parameter (usually 2x rank)
+        r=64, #Rank of low rank adaptation
+        lora_alpha=128, #Scaling parameter (usually 2x rank)
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"], #Which modules to apply LoRA to (attention and MoE layers)
         lora_dropout=0.1,
         bias="none",

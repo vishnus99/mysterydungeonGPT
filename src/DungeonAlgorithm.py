@@ -161,7 +161,7 @@ class DungeonData:  # Dungeon structure
 
     def clear_tiles():
         DungeonData.list_tiles = [
-            [TileData() for y in range(32)] for x in range(32)
+            [TileData() for y in range(32)] for x in range(56)
         ]  # 0x40E0
 
     def clear_fixed_room():
@@ -183,6 +183,7 @@ class StatusData:  # Status structure 0237CFBC
     has_maze = 0  # 0x7
     no_enemy_spawn = 0  # 0x8
     kecleon_chance = 100  # 0xC
+    actual_nb_rooms = 0  # Store actual room count after generation (accounts for random variation)
     mh_chance = 0  # 0x10
     nb_rooms = 0  # 0x14
     middle_room_secondary = 0  # 0x18
@@ -1676,7 +1677,7 @@ def generate_extra_hallways(grid, max_nb_room_x, max_nb_room_y, extra_hallways):
                 valid = True
                 for x in range(cur_x - 2, cur_x + 3):
                     for y in range(cur_y - 2, cur_y + 3):
-                        if x < 0 or x >= 32 or y < 0 or y >= 32:
+                        if x < 0 or x >= 56 or y < 0 or y >= 32:
                             valid = False
                             break
                     if not valid:
@@ -1829,7 +1830,7 @@ def generate_extra_hallways(grid, max_nb_room_x, max_nb_room_y, extra_hallways):
                                     # If we would step into an invalid grid
                                     # cell, abort
                                     if (
-                                        cur_x >= 32
+                                        cur_x >= 56
                                         and StatusData.floor_size == 1
                                         and direction == 0x2
                                     ):
@@ -2051,7 +2052,7 @@ def test_room(cur_x, cur_y):
     for dx in [-1, 0, 1]:
         if cur_x + dx < 0:
             continue
-        if cur_x + dx >= 32:
+        if cur_x + dx >= 56:
             break
         for dy in [-1, 0, 1]:
             if cur_y + dy < 0:
@@ -2289,7 +2290,7 @@ def generate_normal_floor(max_nb_room_x, max_nb_room_y, prop):
 
 # US: 02342B7C
 def reset_y_borders():
-    for x in range(32):
+    for x in range(56):
         DungeonData.list_tiles[x][1] = TileData()
         if x == 0 or x == 55:
             DungeonData.list_tiles[x][1][0] |= 0x10
@@ -2300,7 +2301,7 @@ def reset_y_borders():
 
 # US: 02340A78
 def delete_status_10():
-    for x in range(32):
+    for x in range(56):
         for y in range(32):
             if DungeonData.list_tiles[x][y][0] & 0x10:
                 DungeonData.list_tiles[x][y][0] &= ~0x3
@@ -2308,7 +2309,7 @@ def delete_status_10():
 
 # US: 0233F93C
 def generate_junctions():
-    for x in range(32):
+    for x in range(56):
         for y in range(32):
             # Open terrain
             if DungeonData.list_tiles[x][y][0] & 3 == 1:
@@ -2347,7 +2348,7 @@ def generate_junctions():
 
 # US: 02340CAC
 def is_out_of_bounds(x, y):
-    return x < 0 or x >= 32 or y < 0 or y >= 32
+    return x < 0 or x >= 56 or y < 0 or y >= 32
 
 
 # US: 0234176C
@@ -2388,7 +2389,7 @@ def generate_secondary(test_attrib, prop):
                 # Fill in tiles in chunks of size 2-7 before changing the flow
                 # direction
                 for v in range(randrange(6) + 2):
-                    if 0 <= pt_x < 32:
+                    if 0 <= pt_x < 56:
                         if 0 <= pt_y < 32:
                             tile = DungeonData.list_tiles[pt_x][pt_y]
                         else:
@@ -2519,9 +2520,9 @@ def generate_secondary(test_attrib, prop):
             # accident (p = 3e-204).
             attempts = 0
             while attempts < 200:
-                rnd_x = randrange(32)
+                rnd_x = randrange(56)
                 rnd_y = randrange(32)
-                if 1 <= rnd_x < 31 and 1 <= rnd_y < 31:
+                if 1 <= rnd_x < 55 and 1 <= rnd_y < 31:
                     break
                 attempts += 1
             if attempts != 200:
@@ -2561,7 +2562,7 @@ def generate_secondary(test_attrib, prop):
                             else:
                                 store_secondary_check(StaticParam.DEFAULT_TILE)
         # Clean up secondary terrain that got in places it shouldn't
-        for x in range(32):
+        for x in range(56):
             for y in range(32):
                 # Secondary terrain
                 if DungeonData.list_tiles[x][y][0] & 0x3 == 2:
@@ -3044,7 +3045,7 @@ def generate_stairs(spawn, hidden_stairs):
     # room a Monster House
     if not hidden_stairs and get_floor_type() == 2:
         room = DungeonData.list_tiles[x][y][7]
-        for x in range(32):
+        for x in range(56):
             for y in range(32):
                 if (
                     DungeonData.list_tiles[x][y][0] & 3 == 1
@@ -3071,7 +3072,7 @@ def generate_item_spawns(prop, empty):
     ### Spawn stairs
     if DungeonData.stairs_spawn_x == -1 or DungeonData.stairs_spawn_y == -1:
         valid_spawns = []
-        for x in range(32):
+        for x in range(56):
             for y in range(32):
                 # The stairs can spawn on tiles that are:
                 # - open terrain
@@ -3111,7 +3112,7 @@ def generate_item_spawns(prop, empty):
     # RandomGenerator.print()
     ### Spawn normal items
     valid_spawns = []
-    for x in range(32):
+    for x in range(56):
         for y in range(32):
             # Normal items can spawn on tiles that are:
             # - open terrain
@@ -3154,7 +3155,7 @@ def generate_item_spawns(prop, empty):
     # RandomGenerator.print()
     ### Spawn buried items (in walls)
     valid_spawns = []
-    for x in range(32):
+    for x in range(56):
         for y in range(32):
             # Buried items can spawn in any wall tile
             if DungeonData.list_tiles[x][y][0] & 0x3 == 0:
@@ -3176,7 +3177,7 @@ def generate_item_spawns(prop, empty):
     ### Spawn items/traps in a non-empty Monster House
     valid_spawns = []
     if not empty:
-        for x in range(32):
+        for x in range(56):
             for y in range(32):
                 # Monster House items/traps can spawn on tiles that are:
                 # - not in a Kecleon shop
@@ -3221,7 +3222,7 @@ def generate_item_spawns(prop, empty):
     # RandomGenerator.print()
     ### Spawn normal traps
     valid_spawns = []
-    for x in range(32):
+    for x in range(56):
         for y in range(32):
             # Normal traps can spawn on tiles that are:
             # - open terrain
@@ -3264,7 +3265,7 @@ def generate_item_spawns(prop, empty):
     ### Spawn the player
     valid_spawns = []
     if DungeonData.player_spawn_x == -1 or DungeonData.player_spawn_y == -1:
-        for x in range(32):
+        for x in range(56):
             for y in range(32):
                 # The player can spawn on tiles that are:
                 # - open terrain
@@ -3306,7 +3307,7 @@ def generate_monster_spawns(prop, empty):
         enemies = randrange(prop.enemy_density // 2, prop.enemy_density)
         if enemies < 1:
             enemies = 1
-    for x in range(32):
+    for x in range(56):
         for y in range(32):
             # Enemies can only spawn on tiles that are:
             # - open terrain
@@ -3356,7 +3357,7 @@ def generate_monster_spawns(prop, empty):
         if DungeonData.create_mh:
             mh_spawn = (mh_spawn * 3) // 2
         # Similar procedure to the normal enemy spawns
-        for x in range(32):
+        for x in range(56):
             for y in range(32):
                 # Monster House enemies can only spawn on tiles that are:
                 # - open terrain
@@ -3402,7 +3403,7 @@ def generate_monster_spawns(prop, empty):
 # US: 02340974
 # Resolve invalid spawn flags and spawn flag conflicts
 def clear_safe():
-    for x in range(32):
+    for x in range(56):
         for y in range(32):
             if DungeonData.list_tiles[x][y][0] & 0x3 != 1:
                 if DungeonData.list_tiles[x][y][0] & 0x110:
@@ -3430,8 +3431,8 @@ def test_reachable(xpos, ypos, mark_invalid):
     # 4 (0x10): starting point
     # 6 (0x40): in the to-visit queue
     # 7 (0x80): visited
-    tst = [[0 for y in range(32)] for x in range(32)]
-    for x in range(32):
+    tst = [[0 for y in range(32)] for x in range(56)]
+    for x in range(56):
         for y in range(32):
             if mark_invalid:
                 # Reset all the "unreachable" flags on the tiles, since we'll
@@ -3455,7 +3456,7 @@ def test_reachable(xpos, ypos, mark_invalid):
     while checked:
         count += 1
         checked = 0
-        for x in range(32):
+        for x in range(56):
             for y in range(32):
                 if tst[x][y] & 0x80 == 0 and tst[x][y] & 0x40:
                     tst[x][y] &= ~0x40  # Pop from queue
@@ -3505,7 +3506,7 @@ def test_reachable(xpos, ypos, mark_invalid):
                     ):
                         tst[x + 1][y + 1] |= 0x40
     StatusData.unk_val_24 = count  # Number of tiles that can reach the stairs
-    for x in range(32):
+    for x in range(56):
         for y in range(32):
             if tst[x][y] & 0x87 == 0:
                 # This is an open tile that wasn't visited by BFS, which means
@@ -3526,7 +3527,7 @@ def test_reachable(xpos, ypos, mark_invalid):
 def reinit_tiles():
     DungeonData.clear_tiles()
     # Set the border to impassable walls
-    for x in range(32):
+    for x in range(56):
         for y in range(32):
             if (
                 is_out_of_bounds(x - 1, y)
@@ -3686,7 +3687,7 @@ def generate_floor():
                 room = [False for i in range(0x40)]
                 # Number of tiles in some room
                 room_tiles = 0
-                for x in range(32):
+                for x in range(56):
                     for y in range(32):
                         if DungeonData.list_tiles[x][y][0] & 0x3 == 1:
                             if DungeonData.list_tiles[x][y][7] < 0xF0:
@@ -3694,6 +3695,8 @@ def generate_floor():
                                 if DungeonData.list_tiles[x][y][7] < 0x40:
                                     room[DungeonData.list_tiles[x][y][7]] = True
                 nb_rooms = room.count(True)
+                # Store actual room count for later retrieval
+                StatusData.actual_nb_rooms = nb_rooms
                 # Make sure there are at least 2 rooms, with at least 20 total
                 # tiles among all the rooms
                 if nb_rooms >= 2 and room_tiles >= 20:

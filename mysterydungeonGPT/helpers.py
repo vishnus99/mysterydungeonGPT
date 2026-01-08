@@ -47,7 +47,7 @@ def extract_json_from_text(text):
             print("Could not fix JSON")
             return None
 
-def coordinates_to_grid(walkable_coords, width=32, height=32):
+def coordinates_to_grid(walkable_coords, width=56, height=32):
     """
     Convert list of walkable coordinates back to full grid array.
     
@@ -76,74 +76,25 @@ def format_map_for_training(map):
     enemies = json.loads(map['enemies'])
     gen_params = json.loads(map['generation_params'])
 
-    # Try to get map_array, fallback to image extraction
-    map_array = map.get('map_array')
-
+    # Get map_array from dataset - stored as JSON string (source of truth)
+    map_array_raw = map.get('map_array')
+    
+    if map_array_raw is None:
+        raise ValueError("map_array is missing from dataset entry")
+    
     map_width = map.get('width', 32) 
     map_height = map.get('height', 32)
     
-    # If map_array is a string with numpy format, extract from image instead
-    if isinstance(map_array, str) and '...' in map_array:
-        # Extract from image
-        from PIL import Image
-        import io
-        
-        image = map['image']
-        if isinstance(image, Image.Image):
-            # Convert image to numpy array
-            img_array = np.array(image)
-            img_height, img_width = img_array.shape[:2]
-            
-            # Extract map: black=wall (0), brown=floor (1), green=player (2), red=stairs (3)
-            # Initialize with walls (0)
-            map_array = np.zeros((img_height, img_width), dtype=np.uint8)
-            
-            # Brown floors: [139, 69, 19]
-            floor_mask = (img_array[:, :, 0] == 139) & (img_array[:, :, 1] == 69) & (img_array[:, :, 2] == 19)
-            map_array[floor_mask] = 1
-            
-            # Green player spawn: [0, 255, 0]
-            player_mask = (img_array[:, :, 0] == 0) & (img_array[:, :, 1] == 255) & (img_array[:, :, 2] == 0)
-            map_array[player_mask] = 2
-            
-            # Red stairs spawn: [255, 0, 0]
-            stairs_mask = (img_array[:, :, 0] == 255) & (img_array[:, :, 1] == 0) & (img_array[:, :, 2] == 0)
-            map_array[stairs_mask] = 3
-
-            # Downsample from image size to map size
-            # Calculate scaling factors
-            scale_y = img_height / map_height
-            scale_x = img_width / map_width
-            
-            # Downsample by taking the mode (most common value) in each tile region
-            # Simple approach: sample at regular intervals
-            downsampled = np.zeros((map_height, map_width), dtype=np.uint8)
-            for y in range(map_height):
-                for x in range(map_width):
-                    # Get the corresponding region in the image
-                    img_y_start = int(y * scale_y)
-                    img_y_end = int((y + 1) * scale_y)
-                    img_x_start = int(x * scale_x)
-                    img_x_end = int((x + 1) * scale_x)
-                    
-                    # Get the region
-                    region = map_array[img_y_start:img_y_end, img_x_start:img_x_end]
-                    # Use the most common value (mode) in the region
-                    if region.size > 0:
-                        values, counts = np.unique(region, return_counts=True)
-                        downsampled[y, x] = values[np.argmax(counts)]
-            
-            map_array = downsampled
-        else:
-            raise ValueError("Could not extract map from image")
-    elif isinstance(map_array, str):
-        # Try to parse as regular string (shouldn't happen but just in case)
-        try:
-            import ast
-            parsed = ast.literal_eval(map_array)
-            map_array = np.array(parsed)
-        except:
-            raise ValueError("Could not parse map_array string")
+    # Parse JSON string to numpy array
+    try:
+        parsed = json.loads(map_array_raw)
+        map_array = np.array(parsed, dtype=np.uint8)
+    except (json.JSONDecodeError, TypeError) as e:
+        raise ValueError(f"Failed to parse map_array JSON: {e}")
+    
+    # Validate shape
+    if map_array.shape != (map_height, map_width):
+        raise ValueError(f"map_array shape {map_array.shape} does not match expected ({map_height}, {map_width})")
 
     player_x = map['player_spawn_x']
     player_y = map['player_spawn_y']
@@ -221,6 +172,48 @@ def format_map_for_training(map):
             if map_array[y, x] == 1:  # Walkable floor tile
                 walkable_coords.append([x, y])  # Store as [x, y] format
     
+    # Ensure spawn points are on floor tiles and in walkable_coords
+    # If spawn coordinates are not on floors, find nearest floor tile
+    walkable_coords_set = set(tuple(c) for c in walkable_coords)
+    
+    # Validate and fix player spawn (safety check - should be rare after map generator fix)
+    if 0 <= player_x < map_width and 0 <= player_y < map_height:
+        if map_array[player_y, player_x] != 1:
+            # Spawn is not on a floor tile - find nearest floor
+            min_dist = float('inf')
+            nearest_floor = None
+            for x, y in walkable_coords:
+                dist = abs(x - player_x) + abs(y - player_y)
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest_floor = [x, y]
+            if nearest_floor:
+                player_x, player_y = nearest_floor
+        
+        # Ensure spawn coordinate is in walkable_coords
+        if (player_x, player_y) not in walkable_coords_set:
+            walkable_coords.append([player_x, player_y])
+            walkable_coords_set.add((player_x, player_y))
+    
+    # Validate and fix stairs spawn (safety check - should be rare after map generator fix)
+    if 0 <= stairs_x < map_width and 0 <= stairs_y < map_height:
+        if map_array[stairs_y, stairs_x] != 1:
+            # Spawn is not on a floor tile - find nearest floor
+            min_dist = float('inf')
+            nearest_floor = None
+            for x, y in walkable_coords:
+                dist = abs(x - stairs_x) + abs(y - stairs_y)
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest_floor = [x, y]
+            if nearest_floor:
+                stairs_x, stairs_y = nearest_floor
+        
+        # Ensure spawn coordinate is in walkable_coords
+        if (stairs_x, stairs_y) not in walkable_coords_set:
+            walkable_coords.append([stairs_x, stairs_y])
+            walkable_coords_set.add((stairs_x, stairs_y))
+    
     # Sort coordinates for consistency (row-major order: sort by y first, then x)
     walkable_coords.sort(key=lambda coord: (coord[1], coord[0]))
 
@@ -229,8 +222,8 @@ def format_map_for_training(map):
         'walkable_tiles': walkable_coords,  # List of [x, y] coordinates
         'player_spawn': [player_x, player_y],
         'stairs_spawn': [stairs_x, stairs_y],
-        'width': 32,
-        'height': 32,
+            'width': 56,
+            'height': 32,
         'difficulty': difficulty,
         'enemies': enemies
     }
