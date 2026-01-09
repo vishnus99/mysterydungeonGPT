@@ -4,10 +4,17 @@ Fine-tuned Model Test Script
 Converted from finetune_test.ipynb
 
 Usage:
-    python finetune_test.py
+    python finetune_test.py [prompt]
+    
+Examples:
+    python finetune_test.py "Generate a medium difficulty dungeon with 6 rooms"
+    python finetune_test.py  # Uses default prompt
 """
 
-def main():
+import sys
+import argparse
+
+def main(prompt=None):
     """Main test function"""
     # Cell 0
     # Test Fine-Tuned Model with Coordinate-Based Format
@@ -80,8 +87,11 @@ def main():
 
 
     # Cell 3
-    # Create test prompt
-    test_prompt = "Generate a medium difficulty dungeon with 6 rooms"
+    # Create test prompt (use provided prompt or default)
+    if prompt is None:
+        test_prompt = "Generate a medium difficulty dungeon with 8 rooms"
+    else:
+        test_prompt = prompt
 
     print(f"Test prompt: {test_prompt}")
     print(f"Prompt tokens: {len(tokenizer.encode(test_prompt, add_special_tokens=False))}")
@@ -203,7 +213,7 @@ def main():
         walkable_coords = map_json.get('walkable_tiles', [])
         player_spawn = map_json.get('player_spawn', [0, 0])
         stairs_spawn = map_json.get('stairs_spawn', [0, 0])
-        width = map_json.get('width', 32)
+        width = map_json.get('width', 56)  # Default to new size: 56x32
         height = map_json.get('height', 32)
     
         print(f"\nWalkable tiles: {len(walkable_coords)} coordinates")
@@ -317,17 +327,82 @@ def main():
 
 
     # Cell 9
-    # Save map for game use (optional)
+    # Save map for game use and update map_index.json
     if map_json and 'full_grid' in locals():
+        # Game expects tiles array with only 0 (wall) and 1 (floor)
+        # Spawn points (2, 3) should be converted back to floor tiles (1)
+        game_tiles = full_grid.copy()
+        game_tiles[game_tiles == 2] = 1  # Convert player spawn areas to floors
+        game_tiles[game_tiles == 3] = 1  # Convert stairs spawn areas to floors
+        
+        # Ensure spawn coordinates are valid single points (not arrays)
+        player_spawn_coords = player_spawn if isinstance(player_spawn, list) and len(player_spawn) == 2 else [0, 0]
+        stairs_spawn_coords = stairs_spawn if isinstance(stairs_spawn, list) and len(stairs_spawn) == 2 else [0, 0]
+        
+        # Ensure spawn points are on floor tiles in the final game_tiles array
+        px, py = int(player_spawn_coords[0]), int(player_spawn_coords[1])
+        sx, sy = int(stairs_spawn_coords[0]), int(stairs_spawn_coords[1])
+        
+        # Validate and fix player spawn
+        if not (0 <= px < width and 0 <= py < height) or game_tiles[py, px] == 0:
+            # Find nearest floor tile
+            nearest = None
+            min_dist = float('inf')
+            for y in range(height):
+                for x in range(width):
+                    if game_tiles[y, x] == 1:  # Floor tile
+                        dist = abs(x - px) + abs(y - py)
+                        if dist < min_dist:
+                            min_dist = dist
+                            nearest = [x, y]
+            if nearest:
+                player_spawn_coords = nearest
+                px, py = nearest
+                print(f"WARNING: Adjusted player spawn to nearest floor: ({px}, {py})")
+        
+        # Validate and fix stairs spawn
+        if not (0 <= sx < width and 0 <= sy < height) or game_tiles[sy, sx] == 0:
+            # Find nearest floor tile
+            nearest = None
+            min_dist = float('inf')
+            for y in range(height):
+                for x in range(width):
+                    if game_tiles[y, x] == 1:  # Floor tile
+                        dist = abs(x - sx) + abs(y - sy)
+                        if dist < min_dist:
+                            min_dist = dist
+                            nearest = [x, y]
+            if nearest:
+                stairs_spawn_coords = nearest
+                sx, sy = nearest
+                print(f"WARNING: Adjusted stairs spawn to nearest floor: ({sx}, {sy})")
+        
+        # Ensure spawn tiles are marked as floors (safety check)
+        game_tiles[py, px] = 1  # Player spawn location is floor
+        game_tiles[sy, sx] = 1  # Stairs spawn location is floor
+        
+        # Ensure enemies have x and y properties (not coordinates array)
+        game_enemies = []
+        for enemy in map_json.get('enemies', []):
+            if isinstance(enemy, dict) and 'x' in enemy and 'y' in enemy:
+                game_enemies.append({'x': int(enemy['x']), 'y': int(enemy['y'])})
+            elif isinstance(enemy, list) and len(enemy) >= 2:
+                # If enemy is [x, y] format, convert to {x, y}
+                game_enemies.append({'x': int(enemy[0]), 'y': int(enemy[1])})
+        
         # Convert to game format (full grid with tiles array)
+        # Tiles should be rows (y) then columns (x) - full_grid[y, x] -> tiles[y][x]
+        # numpy array: game_tiles.shape = (height, width), accessed as game_tiles[y, x]
+        # .tolist() converts to list of rows: [[row0], [row1], ...] where row0 = [col0, col1, ...]
+        # This gives us tiles[y][x] which matches game.js: currentMap.tiles[y][x]
         game_map = {
-            'tiles': full_grid.tolist(),
-            'player_spawn': player_spawn,
-            'stairs_spawn': stairs_spawn,
-            'width': width,
-            'height': height,
+            'tiles': game_tiles.tolist(),  # List of rows (y), each row is columns (x)
+            'player_spawn': [px, py],  # [x, y] format as game expects
+            'stairs_spawn': [sx, sy],  # [x, y] format as game expects
+            'width': int(width),
+            'height': int(height),
             'difficulty': map_json.get('difficulty', 'medium'),
-            'enemies': map_json.get('enemies', [])
+            'enemies': game_enemies
         }
     
         # Save to file - use absolute path from script location
@@ -335,14 +410,47 @@ def main():
         maps_dir = script_dir.parent.parent / "web_game" / "maps"
         maps_dir.mkdir(parents=True, exist_ok=True)
     
-        map_id = "map_generated_test"
+        # Generate unique map ID with timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        map_id = f"map_generated_{timestamp}"
         output_path = maps_dir / f"{map_id}.json"
     
         with open(output_path, 'w') as f:
             json.dump(game_map, f, indent=2)
     
-        print(f"Map saved to {output_path}")
-        print(f"  You can now load this in the web game!")
+        # Update map_index.json
+        index_path = maps_dir / "map_index.json"
+        if index_path.exists():
+            with open(index_path, 'r') as f:
+                map_index = json.load(f)
+        else:
+            map_index = {
+                "total_maps": 0,
+                "map_ids": [],
+                "source": "generated",
+                "split": "generated"
+            }
+        
+        # Add new map ID if not already present
+        if map_id not in map_index['map_ids']:
+            map_index['map_ids'].append(map_id)
+            map_index['total_maps'] = len(map_index['map_ids'])
+        
+        # Save updated index
+        with open(index_path, 'w') as f:
+            json.dump(map_index, f, indent=2)
+        
+        print(f"\n{'='*70}")
+        print("MAP SAVED SUCCESSFULLY")
+        print(f"{'='*70}")
+        print(f"Map ID: {map_id}")
+        print(f"File: {output_path}")
+        print(f"Map Index updated: {len(map_index['map_ids'])} maps total")
+        print(f"\nYou can now start the web game and play this map!")
+        print(f"  Maps directory: {maps_dir}")
+        print(f"  Index file: {index_path}")
+        print(f"{'='*70}")
     else:
         print("WARNING: Skipping save - map reconstruction failed")
 
@@ -363,4 +471,15 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description='Generate a map using the fine-tuned model')
+    parser.add_argument('prompt', nargs='?', default=None,
+                       help='Prompt for map generation (default: "Generate a medium difficulty dungeon with 6 rooms")')
+    parser.add_argument('--no-save', action='store_true',
+                       help='Skip saving the map to web_game/maps/')
+    parser.add_argument('--no-visualization', action='store_true',
+                       help='Skip generating visualization image')
+    
+    args = parser.parse_args()
+    
+    # Pass prompt to main (we'll need to modify main to handle no-save and no-visualization)
+    main(prompt=args.prompt)

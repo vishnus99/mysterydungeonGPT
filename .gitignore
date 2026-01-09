@@ -217,3 +217,9 @@ web_game/maps/*
 mystery_dungeon_data/
 mysterydungeonGPT/trained_model/final_model/
 final_model/
+mysterydungeonGPT/trained_model/upload_model.py
+test_spawn_fixes.py
+verify_training_data.py
+convert_maps_to_json.py
+map_converter_common.py
+modal_train.py

@@ -12,13 +12,17 @@ let lastEnemyMoveTime = Date.now(); // Initialize to current time so enemies can
 const ENEMY_MOVE_INTERVAL = 300; // Enemies move every 300ms (slower than player)
 
 // Camera/viewport settings
-const VIEWPORT_WIDTH_TILES = 50;  // Number of tiles visible horizontally
-const VIEWPORT_HEIGHT_TILES = 40; // Number of tiles visible vertically
+const VIEWPORT_WIDTH_TILES = 6;  // Number of tiles visible horizontally (odd number for centering)
+const VIEWPORT_HEIGHT_TILES = 3;  // Number of tiles visible vertically (odd number for centering)
 const CANVAS_WIDTH = VIEWPORT_WIDTH_TILES * TILE_SIZE;
 const CANVAS_HEIGHT = VIEWPORT_HEIGHT_TILES * TILE_SIZE;
 
 let canvas, ctx;
 let camera = { x: 0, y: 0 }; // Camera position in world coordinates
+
+// Exploration tracking - Set of explored tile coordinates as "x,y" strings
+let exploredTiles = new Set();
+const EXPLORATION_RADIUS = 3; // Number of tiles around player that get explored (visibility range)
 
 // Track currently pressed keys
 const pressedKeys = new Set();
@@ -76,12 +80,25 @@ function updateCamera() {
     
     // Center camera on player
     // Camera position is the top-left corner of the viewport
-    camera.x = player.x - Math.floor(VIEWPORT_WIDTH_TILES / 2);
-    camera.y = player.y - Math.floor(VIEWPORT_HEIGHT_TILES / 2);
+    const targetCameraX = player.x - Math.floor(VIEWPORT_WIDTH_TILES / 2);
+    const targetCameraY = player.y - Math.floor(VIEWPORT_HEIGHT_TILES / 2);
     
-    // Clamp camera to map boundaries
-    camera.x = Math.max(0, Math.min(camera.x, currentMap.width - VIEWPORT_WIDTH_TILES));
-    camera.y = Math.max(0, Math.min(camera.y, currentMap.height - VIEWPORT_HEIGHT_TILES));
+    // Clamp camera to map boundaries while keeping player as centered as possible
+    if (currentMap.width <= VIEWPORT_WIDTH_TILES) {
+        // Map is smaller than viewport - center the map
+        camera.x = Math.floor((currentMap.width - VIEWPORT_WIDTH_TILES) / 2);
+    } else {
+        // Map is larger than viewport - clamp to boundaries
+        camera.x = Math.max(0, Math.min(targetCameraX, currentMap.width - VIEWPORT_WIDTH_TILES));
+    }
+    
+    if (currentMap.height <= VIEWPORT_HEIGHT_TILES) {
+        // Map is smaller than viewport - center the map
+        camera.y = Math.floor((currentMap.height - VIEWPORT_HEIGHT_TILES) / 2);
+    } else {
+        // Map is larger than viewport - clamp to boundaries
+        camera.y = Math.max(0, Math.min(targetCameraY, currentMap.height - VIEWPORT_HEIGHT_TILES));
+    }
 }
 
 function worldToScreen(worldX, worldY) {
@@ -89,6 +106,34 @@ function worldToScreen(worldX, worldY) {
     const screenX = (worldX - camera.x) * TILE_SIZE;
     const screenY = (worldY - camera.y) * TILE_SIZE;
     return [screenX, screenY];
+}
+
+function exploreTilesAround(x, y) {
+    // Mark tiles within exploration radius as explored
+    if (!currentMap) return;
+    
+    for (let dy = -EXPLORATION_RADIUS; dy <= EXPLORATION_RADIUS; dy++) {
+        for (let dx = -EXPLORATION_RADIUS; dx <= EXPLORATION_RADIUS; dx++) {
+            const exploreX = x + dx;
+            const exploreY = y + dy;
+            
+            // Check bounds
+            if (exploreX < 0 || exploreX >= currentMap.width ||
+                exploreY < 0 || exploreY >= currentMap.height) {
+                continue;
+            }
+            
+            // Mark as explored (using Manhattan distance for diamond shape)
+            const distance = Math.abs(dx) + Math.abs(dy);
+            if (distance <= EXPLORATION_RADIUS) {
+                exploredTiles.add(`${exploreX},${exploreY}`);
+            }
+        }
+    }
+}
+
+function isExplored(x, y) {
+    return exploredTiles.has(`${x},${y}`);
 }
 
 async function loadFloor(floorIndex) {
@@ -102,6 +147,10 @@ async function loadFloor(floorIndex) {
     
     player.x = currentMap.player_spawn[0];
     player.y = currentMap.player_spawn[1];
+    
+    // Initialize exploration tracking - start with spawn area explored
+    exploredTiles = new Set();
+    exploreTilesAround(player.x, player.y);
     
     // Initialize enemies with state tracking
     enemies = [];
@@ -146,10 +195,7 @@ function isValidMove(x, y) {
         return false;
     }
     
-    // Check collision with enemies
-    if (isPositionOccupiedByEnemy(x, y)) {
-        return false;
-    }
+    // Players can now pass through enemies - removed enemy collision check
     
     return true;
 }
@@ -311,6 +357,9 @@ function gameLoop() {
                 player.y = newY;
                 playerMoved = true;
                 
+                // Explore tiles around new player position
+                exploreTilesAround(player.x, player.y);
+                
                 updateCamera(); // Update camera position
                 
                 if (checkStairs()) {
@@ -356,26 +405,34 @@ function draw() {
     const startY = Math.max(0, camera.y);
     const endY = Math.min(currentMap.height, camera.y + VIEWPORT_HEIGHT_TILES);
     
-    // Draw visible tiles only
+    // Draw visible tiles only (only show explored tiles)
     for (let y = startY; y < endY; y++) {
         for (let x = startX; x < endX; x++) {
-            const tile = currentMap.tiles[y][x];
             const [screenX, screenY] = worldToScreen(x, y);
             
-            if (tile === 0) {
-                ctx.fillStyle = '#333';
-                ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+            if (isExplored(x, y)) {
+                // Draw explored tiles
+                const tile = currentMap.tiles[y][x];
+                if (tile === 0) {
+                    ctx.fillStyle = '#333';
+                    ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                } else {
+                    ctx.fillStyle = '#8B4513';
+                    ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                }
             } else {
-                ctx.fillStyle = '#8B4513';
+                // Draw unexplored tiles as black
+                ctx.fillStyle = '#000';
                 ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
             }
         }
     }
     
-    // Draw enemies (use the enemies array with state tracking)
+    // Draw enemies (use the enemies array with state tracking) - only if explored
     enemies.forEach(enemy => {
         if (enemy.x >= startX && enemy.x < endX && 
-            enemy.y >= startY && enemy.y < endY) {
+            enemy.y >= startY && enemy.y < endY &&
+            isExplored(enemy.x, enemy.y)) {
             const [screenEx, screenEy] = worldToScreen(enemy.x, enemy.y);
             
             // Color based on enemy type
@@ -402,9 +459,10 @@ function draw() {
         }
     });
     
-    // Draw stairs (if visible)
+    // Draw stairs (if visible and explored)
     const [sx, sy] = currentMap.stairs_spawn;
-    if (sx >= startX && sx < endX && sy >= startY && sy < endY) {
+    if (sx >= startX && sx < endX && sy >= startY && sy < endY &&
+        isExplored(sx, sy)) {
         const [screenSx, screenSy] = worldToScreen(sx, sy);
         ctx.fillStyle = '#ff0000';
         ctx.fillRect(screenSx, screenSy, TILE_SIZE, TILE_SIZE);
