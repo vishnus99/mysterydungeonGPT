@@ -7,7 +7,12 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from peft import get_peft_model
-import wandb
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ModuleNotFoundError:
+    WANDB_AVAILABLE = False
+    wandb = None
 
 def extract_json_from_text(text):
     """
@@ -277,33 +282,36 @@ def train(
 
     # Initialize Weights & Biases with error handling
     wandb_initialized = False
-    try:
-        wandb_api_key = os.environ.get("WANDB_API_KEY")
-        if wandb_api_key:
-            wandb.init(
-                project="mystery-dungeon-gpt",
-                name=f"qwen3-0.6b-lora-32x32",
-                config={
-                    "model": "Qwen3-0.6B",
-                    "batch_size": batch_size,
-                    "num_epochs": num_epochs,
-                    "learning_rate": learning_rate,
-                    "gradient_accumulation_steps": gradient_accumulation_steps,
-                    "max_grad_norm": max_grad_norm,
-                    "max_context_length": train_dataset.max_context_length if hasattr(train_dataset, 'max_context_length') else None,
-                    "train_size": len(train_dataset),
-                    "val_size": len(val_dataset)
-                }
-            )
-            wandb_initialized = True
-            print("Weights & Biases initialized successfully")
-        else:
-            print("WANDB_API_KEY not found in environment - wandb logging disabled")
+    if wandb is None:
+        print("wandb not available, logging disabled")
+    else: 
+        try:
+            wandb_api_key = os.environ.get("WANDB_API_KEY")
+            if wandb_api_key:
+                wandb.init(
+                    project="mystery-dungeon-gpt",
+                    name=f"qwen3-0.6b-lora-32x32",
+                    config={
+                        "model": "Qwen3-0.6B",
+                        "batch_size": batch_size,
+                        "num_epochs": num_epochs,
+                        "learning_rate": learning_rate,
+                        "gradient_accumulation_steps": gradient_accumulation_steps,
+                        "max_grad_norm": max_grad_norm,
+                        "max_context_length": train_dataset.max_context_length if hasattr(train_dataset, 'max_context_length') else None,
+                        "train_size": len(train_dataset),
+                        "val_size": len(val_dataset)
+                    }
+                )
+                wandb_initialized = True
+                print("Weights & Biases initialized successfully")
+            else:
+                print("WANDB_API_KEY not found in environment - wandb logging disabled")
+                wandb.init(mode="disabled")
+        except Exception as e:
+            print(f"Failed to initialize wandb: {e}")
+            print("Continuing training without wandb logging")
             wandb.init(mode="disabled")
-    except Exception as e:
-        print(f"Failed to initialize wandb: {e}")
-        print("Continuing training without wandb logging")
-        wandb.init(mode="disabled")
 
     num_training_steps = len(train_dataloader) * num_epochs
     

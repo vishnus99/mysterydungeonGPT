@@ -1,2 +1,2 @@
 # mysterydungeonGPT
-Pokemon Mystery Dungeon map generator through LLMs
+Mystery Dungeon map generator through LLMs
