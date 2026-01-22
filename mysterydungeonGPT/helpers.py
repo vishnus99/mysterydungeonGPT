@@ -2,6 +2,11 @@ import json
 import random
 import os
 import re
+
+# Disable CUDA on Mac to prevent peft mutex deadlock
+if os.uname().sysname == "Darwin":
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader

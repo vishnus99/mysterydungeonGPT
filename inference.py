@@ -16,7 +16,7 @@ tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
 
 def generate_map(prompt, **kwargs):
     """Generate map using OpenAI-compatible API"""
-    
+
     # Format prompt with chat template
     messages = [{"role": "user", "content": prompt}]
     formatted_prompt = tokenizer.apply_chat_template(
@@ -24,7 +24,7 @@ def generate_map(prompt, **kwargs):
         tokenize=False,
         add_generation_prompt=True
     )
-    
+
     # Call SGLang via OpenAI client
     response = client.chat.completions.create(
         model="merged_model",
@@ -34,12 +34,12 @@ def generate_map(prompt, **kwargs):
         max_tokens=kwargs.get("max_new_tokens", 6000),
         stream=False
     )
-    
+
     generated_text = response.choices[0].message.content
-    
+
     # Extract JSON client-side
     map_json = extract_json_from_text(generated_text)
-    
+
     return {
         "raw_text": generated_text,
         "map_json": map_json,

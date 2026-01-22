@@ -44,12 +44,6 @@ def main(prompt=None):
     # Load the fine-tuned model
     # Use absolute path relative to script location (script_dir already defined above)
     finetuned_model_path = script_dir / "final_model"
-    
-    if not finetuned_model_path.exists():
-        raise FileNotFoundError(
-            f"Fine-tuned model not found at {finetuned_model_path}\n"
-            f"Please ensure the model is in: {finetuned_model_path}"
-        )
 
     print("Loading base model...")
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
@@ -72,8 +66,7 @@ def main(prompt=None):
         device_map=device_map
     )
 
-    print(f"Loading fine-tuned adapter from {finetuned_model_path}...")
-    ft_model = PeftModel.from_pretrained(base_model, str(finetuned_model_path))
+    ft_model = PeftModel.from_pretrained(base_model, "vishnusm/mysterydungeonGPT")
     ft_model.eval()
 
     print("Model loaded successfully")
