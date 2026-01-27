@@ -11,6 +11,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Optional, List, Tuple, Dict
+from pathlib import Path
 import argparse
 import os
 
@@ -61,6 +62,176 @@ class MysteryDungeonMapViewer:
         print(f"Loaded {len(df)} maps")
         return df
     
+    def load_map_from_json(self, json_path: str) -> Tuple[np.ndarray, dict]:
+        """
+        Load a map from a JSON file (coordinate-based or grid-based format).
+        
+        Args:
+            json_path: Path to JSON file
+        
+        Returns:
+            Tuple of (map_array, metadata_dict)
+        """
+        with open(json_path, 'r') as f:
+            map_data = json.load(f)
+        
+        # Check if it's coordinate-based format (walkable_tiles)
+        if 'walkable_tiles' in map_data:
+            from mysterydungeonGPT.helpers import coordinates_to_grid
+            
+            width = map_data.get('width', 56)
+            height = map_data.get('height', 32)
+            walkable_coords = map_data['walkable_tiles']
+            
+            # Convert coordinates to grid
+            grid = coordinates_to_grid(walkable_coords, width=width, height=height)
+            
+            # Initialize spawn points
+            px, py = -1, -1
+            sx, sy = -1, -1
+            
+            # Add spawn points (convert to grid coordinates)
+            if 'player_spawn' in map_data:
+                spawn = map_data['player_spawn']
+                if isinstance(spawn, list):
+                    px, py = spawn[0], spawn[1]
+                else:
+                    px, py = spawn.get('x', -1), spawn.get('y', -1)
+                if 0 <= px < width and 0 <= py < height:
+                    grid[py, px] = 2  # Player spawn
+            
+            if 'stairs_spawn' in map_data:
+                spawn = map_data['stairs_spawn']
+                if isinstance(spawn, list):
+                    sx, sy = spawn[0], spawn[1]
+                else:
+                    sx, sy = spawn.get('x', -1), spawn.get('y', -1)
+                if 0 <= sx < width and 0 <= sy < height:
+                    grid[sy, sx] = 3  # Stairs spawn
+            
+            # Create metadata dict compatible with viewer
+            metadata = {
+                'width': width,
+                'height': height,
+                'player_spawn_x': px,
+                'player_spawn_y': py,
+                'stairs_spawn_x': sx,
+                'stairs_spawn_y': sy,
+                'enemies': map_data.get('enemies', []),
+                'difficulty': map_data.get('difficulty', 'unknown'),
+                'map_id': os.path.basename(json_path).replace('.json', '')
+            }
+            
+            return grid, metadata
+        
+        # Check if it's grid-based format (tiles array)
+        elif 'tiles' in map_data:
+            map_array = np.array(map_data['tiles'], dtype=np.uint8)
+            
+            # Extract metadata
+            metadata = {
+                'width': map_data.get('width', map_array.shape[1]),
+                'height': map_data.get('height', map_array.shape[0]),
+                'player_spawn_x': -1,
+                'player_spawn_y': -1,
+                'stairs_spawn_x': -1,
+                'stairs_spawn_y': -1,
+                'enemies': map_data.get('enemies', []),
+                'difficulty': map_data.get('difficulty', 'unknown'),
+                'map_id': os.path.basename(json_path).replace('.json', '')
+            }
+            
+            # Find spawn points in the grid
+            player_spawns = np.where(map_array == 2)
+            stairs_spawns = np.where(map_array == 3)
+            
+            if len(player_spawns[0]) > 0:
+                metadata['player_spawn_y'] = player_spawns[0][0]
+                metadata['player_spawn_x'] = player_spawns[1][0]
+            
+            if len(stairs_spawns[0]) > 0:
+                metadata['stairs_spawn_y'] = stairs_spawns[0][0]
+                metadata['stairs_spawn_x'] = stairs_spawns[1][0]
+            
+            return map_array, metadata
+        
+        else:
+            raise ValueError(f"Unknown map format in {json_path}. Expected 'walkable_tiles' or 'tiles' field.")
+    
+    def load_maps_from_json_directory(self, json_dir: str) -> pd.DataFrame:
+        """
+        Load all JSON map files from a directory.
+        
+        Args:
+            json_dir: Directory containing JSON map files
+        
+        Returns:
+            DataFrame compatible with the viewer
+        """
+        json_dir_path = Path(json_dir)
+        json_files = list(json_dir_path.glob('*.json'))
+        
+        # Filter out map_index.json
+        json_files = [f for f in json_files if f.name != 'map_index.json']
+        
+        if not json_files:
+            raise ValueError(f"No JSON map files found in {json_dir}")
+        
+        print(f"Loading {len(json_files)} maps from {json_dir}")
+        
+        maps_data = []
+        for json_file in json_files:
+            try:
+                map_array, metadata = self.load_map_from_json(str(json_file))
+                
+                # Convert map_array to PIL Image for compatibility with viewer
+                # Create a simple RGB representation
+                height, width = map_array.shape
+                img_array = np.zeros((height, width, 3), dtype=np.uint8)
+                
+                for y in range(height):
+                    for x in range(width):
+                        tile = map_array[y, x]
+                        if tile == 0:
+                            img_array[y, x] = [0, 0, 0]  # Black wall
+                        elif tile == 1:
+                            img_array[y, x] = [139, 69, 19]  # Brown floor
+                        elif tile == 2:
+                            img_array[y, x] = [0, 255, 0]  # Green player
+                        elif tile == 3:
+                            img_array[y, x] = [255, 0, 0]  # Red stairs
+                
+                img = Image.fromarray(img_array)
+                
+                # Create a row compatible with the viewer's DataFrame format
+                row = {
+                    'image': img,
+                    'map_id': metadata.get('map_id', json_file.stem),
+                    'width': metadata['width'],
+                    'height': metadata['height'],
+                    'player_spawn_x': metadata.get('player_spawn_x', -1),
+                    'player_spawn_y': metadata.get('player_spawn_y', -1),
+                    'stairs_spawn_x': metadata.get('stairs_spawn_x', -1),
+                    'stairs_spawn_y': metadata.get('stairs_spawn_y', -1),
+                    'enemies': json.dumps(metadata.get('enemies', [])),
+                    'difficulty': metadata.get('difficulty', 'unknown'),
+                    'room_count': 0,  # Not available in generated maps
+                    'complexity': 0.0,  # Not available in generated maps
+                    'corridor_length': 0  # Not available in generated maps
+                }
+                maps_data.append(row)
+                
+            except Exception as e:
+                print(f"Warning: Failed to load {json_file}: {e}")
+                continue
+        
+        if not maps_data:
+            raise ValueError(f"No valid maps loaded from {json_dir}")
+        
+        df = pd.DataFrame(maps_data)
+        print(f"Successfully loaded {len(df)} maps")
+        return df
+    
     def extract_map_from_image(self, image_pil: Image.Image) -> np.ndarray:
         """Extract map array from PIL Image"""
         # Convert image back to numpy array
@@ -100,7 +271,7 @@ class MysteryDungeonMapViewer:
         
         return map_array
     
-    def display_ascii_map(self, map_array: np.ndarray, title: str = "Map",
+    def display_ascii_map(self, map_array: np.ndarray, title: str = "Map", 
                           save_to_file: str = None, path: Optional[List[Tuple[int, int]]] = None,
                           enemies: Optional[List[Dict]] = None):
         """Display map as ASCII art"""
@@ -108,7 +279,7 @@ class MysteryDungeonMapViewer:
         ascii_output = []
         ascii_output.append(f"\n{title}")
         ascii_output.append("=" * (map_array.shape[1] + 2))
-
+        
         path_set = set(path) if path else set()
         
         # Create enemy position set for quick lookup
@@ -136,35 +307,35 @@ class MysteryDungeonMapViewer:
                 else:
                     ascii_row_chars.append(self.ascii_chars.get(tile, '?'))
             ascii_output.append(f"|{''.join(ascii_row_chars)}|")
-
+        
         ascii_output.append("=" * (map_array.shape[1] + 2))
         ascii_output.append(f"Size: {map_array.shape[1]}x{map_array.shape[0]}")
         ascii_output.append(f"Floor tiles: {np.sum(map_array == 1)}")
         ascii_output.append(f"Wall tiles: {np.sum(map_array == 0)}")
         if enemies and len(enemy_positions) > 0:
             ascii_output.append(f"Enemies: {len(enemy_positions)}")
-
+        
         for line in ascii_output:
             print(line)
-
+        
         if save_to_file:
             with open(save_to_file, 'w') as f:
                 f.write('\n'.join(ascii_output))
             print(f"ASCII map saved to: {save_to_file}")
     
-    def display_matplotlib_map(self, map_array: np.ndarray, title: str = "Map",
+    def display_matplotlib_map(self, map_array: np.ndarray, title: str = "Map", 
                                figsize: Tuple[int, int] = (10, 8), save_to_file: str = None,
                                path: Optional[List[Tuple[int, int]]] = None,
                                enemies: Optional[List[Dict]] = None):
         """Display map using matplotlib"""
         
         fig, ax = plt.subplots(figsize=figsize)
-
+        
         colored_map = np.zeros((*map_array.shape, 3))
         for tile_type, color in self.colors.items():
             mask = map_array == tile_type
             colored_map[mask] = plt.matplotlib.colors.to_rgb(color)
-
+        
         if path:
             path_color = plt.matplotlib.colors.to_rgb('#1E90FF')  # blue
             for x, y in path:
@@ -196,15 +367,15 @@ class MysteryDungeonMapViewer:
         ax.set_xticks(range(0, map_array.shape[1], 5))
         ax.set_yticks(range(0, map_array.shape[0], 5))
         ax.grid(True, alpha=0.3)
-
+        
         plt.tight_layout()
-
+        
         if save_to_file:
             plt.savefig(save_to_file, dpi=300, bbox_inches='tight')
             print(f"Map image saved to: {save_to_file}")
         else:
             plt.show()
-
+        
         plt.close()
     
     def save_map_as_numpy(self, map_array: np.ndarray, filename: str):
@@ -284,7 +455,7 @@ class MysteryDungeonMapViewer:
         enemies = None
         if 'enemies' in row and row['enemies'] is not None:
             enemies = row['enemies']
-    
+        
         # Display map
         title = f"Map {index} (ID: {row.get('map_id', 'Unknown')})"
         if 'difficulty' in row:
@@ -301,7 +472,7 @@ class MysteryDungeonMapViewer:
         if display_format in ["ascii", "both"]:
             ascii_file = f"{base_filename}.txt" if base_filename else None
             self.display_ascii_map(map_array, title, ascii_file, path=path, enemies=enemies)
-
+        
         if display_format in ["matplotlib", "both"]:
             img_file = f"{base_filename}.png" if base_filename else None
             self.display_matplotlib_map(map_array, title, save_to_file=img_file, path=path, enemies=enemies)
@@ -472,6 +643,8 @@ def main():
     parser = argparse.ArgumentParser(description="View Mystery Dungeon Maps")
     parser.add_argument("--dataset", help="HuggingFace dataset name")
     parser.add_argument("--local", help="Local parquet file path")
+    parser.add_argument("--json-file", help="Single JSON map file to view")
+    parser.add_argument("--json-dir", help="Directory containing JSON map files")
     parser.add_argument("--index", type=int, default=0, help="Map index to view")
     parser.add_argument("--format", choices=["ascii", "matplotlib", "both"], 
                        default="both", help="Display format")
@@ -489,8 +662,45 @@ def main():
         df = viewer.load_dataset_from_huggingface(args.dataset)
     elif args.local:
         df = viewer.load_dataset_from_local(args.local)
+    elif args.json_file:
+        # Load single JSON file - create a temporary DataFrame
+        map_array, metadata = viewer.load_map_from_json(args.json_file)
+        
+        # Convert to image for DataFrame compatibility
+        height, width = map_array.shape
+        img_array = np.zeros((height, width, 3), dtype=np.uint8)
+        for y in range(height):
+            for x in range(width):
+                tile = map_array[y, x]
+                if tile == 0:
+                    img_array[y, x] = [0, 0, 0]
+                elif tile == 1:
+                    img_array[y, x] = [139, 69, 19]
+                elif tile == 2:
+                    img_array[y, x] = [0, 255, 0]
+                elif tile == 3:
+                    img_array[y, x] = [255, 0, 0]
+        
+        img = Image.fromarray(img_array)
+        df = pd.DataFrame([{
+            'image': img,
+            'map_id': metadata.get('map_id', Path(args.json_file).stem),
+            'width': metadata['width'],
+            'height': metadata['height'],
+            'player_spawn_x': metadata.get('player_spawn_x', -1),
+            'player_spawn_y': metadata.get('player_spawn_y', -1),
+            'stairs_spawn_x': metadata.get('stairs_spawn_x', -1),
+            'stairs_spawn_y': metadata.get('stairs_spawn_y', -1),
+            'enemies': json.dumps(metadata.get('enemies', [])),
+            'difficulty': metadata.get('difficulty', 'unknown'),
+            'room_count': 0,
+            'complexity': 0.0,
+            'corridor_length': 0
+        }])
+    elif args.json_dir:
+        df = viewer.load_maps_from_json_directory(args.json_dir)
     else:
-        print("Please specify either --dataset or --local")
+        print("Please specify one of: --dataset, --local, --json-file, or --json-dir")
         return
     
     if args.interactive:

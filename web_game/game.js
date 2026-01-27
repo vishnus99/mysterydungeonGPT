@@ -12,8 +12,8 @@ let lastEnemyMoveTime = Date.now(); // Initialize to current time so enemies can
 const ENEMY_MOVE_INTERVAL = 300; // Enemies move every 300ms (slower than player)
 
 // Camera/viewport settings
-const VIEWPORT_WIDTH_TILES = 6;  // Number of tiles visible horizontally (odd number for centering)
-const VIEWPORT_HEIGHT_TILES = 3;  // Number of tiles visible vertically (odd number for centering)
+const VIEWPORT_WIDTH_TILES = 21;  // Number of tiles visible horizontally (odd number for centering)
+const VIEWPORT_HEIGHT_TILES = 15;  // Number of tiles visible vertically (odd number for centering)
 const CANVAS_WIDTH = VIEWPORT_WIDTH_TILES * TILE_SIZE;
 const CANVAS_HEIGHT = VIEWPORT_HEIGHT_TILES * TILE_SIZE;
 
