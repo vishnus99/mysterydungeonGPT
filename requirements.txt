@@ -1,21 +1,34 @@
-# Core dependencies
+# Core ML/Training dependencies
+torch>=2.0.0
+transformers>=4.35.0
+peft>=0.6.0
+accelerate>=0.24.0
 datasets>=2.14.0
 huggingface-hub>=0.16.0
-torch>=2.0.0
-Pillow>=9.0.0
+tqdm>=4.65.0
+
+# Optional: Experiment tracking (optional but recommended for training)
+wandb>=0.15.0
+
+# Data processing
 numpy>=1.21.0
+pillow>=9.0.0
+pandas>=1.5.0
 
-# Dungeon generation
-# You'll need to install dungeon-eos from the GitHub repository:
-# git clone https://github.com/SkyTemple/dungeon-eos.git
-# cd dungeon-eos && pip install -e .
-# Note: This is the dungeon generation algorithm library, not the ROM hacking tool
-
-# Optional: For advanced image processing
-opencv-python>=4.5.0
+# Visualization
 matplotlib>=3.5.0
+seaborn>=0.12.0
 
-# Development and testing
+# Inference client
+openai>=1.0.0
+
+# Cloud deployment
+modal>=0.49.0
+
+# Development and testing (optional)
 pytest>=7.0.0
 black>=22.0.0
 flake8>=5.0.0
+
+# Note: SGLang is not included here as it's handled via Modal's container image
+# The inference server uses Modal's pre-built SGLang image
