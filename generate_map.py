@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime
 
 class MapGenerator:
-    MODAL_URL = "https://vishnus99--mystery-dungeon-inference-chat-sglangserver-serve.modal.run"
+    MODAL_URL = "" #provided by Modal upon server setup
 
     def __init__(self):
         self.client = OpenAI(
