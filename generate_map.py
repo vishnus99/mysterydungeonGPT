@@ -5,8 +5,10 @@ from openai import OpenAI
 from pathlib import Path
 from datetime import datetime
 
+from mysterydungeonGPT.helpers import coordinates_to_grid
+
 class MapGenerator:
-    MODAL_URL = "" #provided by Modal upon server setup
+    MODAL_URL = "https://vishnus99--mystery-dungeon-inference-chat-sglangserver-serve.modal.run" #provided by Modal upon server setup
 
     def __init__(self):
         self.client = OpenAI(
@@ -50,6 +52,71 @@ class MapGenerator:
             "raw_text": generated_text,
             "map_json": map_json,
             "success": map_json is not None
+        }
+
+    def convert_to_game_format(self, map_json):
+        """Convert coordinate-based model output to game format (tiles grid, spawns, enemies)."""
+        if not map_json or "walkable_tiles" not in map_json:
+            return None
+        width = int(map_json.get("width", 56))
+        height = int(map_json.get("height", 32))
+        walkable = map_json.get("walkable_tiles", [])
+        valid_coords = []
+        for c in walkable:
+            if isinstance(c, (list, tuple)) and len(c) >= 2:
+                x, y = int(c[0]), int(c[1])
+                if 0 <= x < width and 0 <= y < height:
+                    valid_coords.append([x, y])
+        full_grid = coordinates_to_grid(valid_coords, width=width, height=height)
+        game_tiles = full_grid.copy()
+
+        player_spawn = map_json.get("player_spawn", [0, 0])
+        stairs_spawn = map_json.get("stairs_spawn", [0, 0])
+        if not isinstance(player_spawn, (list, tuple)) or len(player_spawn) < 2:
+            player_spawn = [0, 0]
+        if not isinstance(stairs_spawn, (list, tuple)) or len(stairs_spawn) < 2:
+            stairs_spawn = [0, 0]
+        px, py = int(player_spawn[0]), int(player_spawn[1])
+        sx, sy = int(stairs_spawn[0]), int(stairs_spawn[1])
+
+        def nearest_floor(tx, ty):
+            nearest = None
+            min_dist = float("inf")
+            for y in range(height):
+                for x in range(width):
+                    if game_tiles[y, x] == 1:
+                        d = abs(x - tx) + abs(y - ty)
+                        if d < min_dist:
+                            min_dist, nearest = d, [x, y]
+            return nearest
+
+        if not (0 <= px < width and 0 <= py < height) or game_tiles[py, px] == 0:
+            n = nearest_floor(px, py)
+            if n:
+                px, py = n[0], n[1]
+        if not (0 <= sx < width and 0 <= sy < height) or game_tiles[sy, sx] == 0:
+            n = nearest_floor(sx, sy)
+            if n:
+                sx, sy = n[0], n[1]
+
+        game_tiles[py, px] = 1
+        game_tiles[sy, sx] = 1
+
+        game_enemies = []
+        for enemy in map_json.get("enemies", []):
+            if isinstance(enemy, dict) and "x" in enemy and "y" in enemy:
+                game_enemies.append({"x": int(enemy["x"]), "y": int(enemy["y"])})
+            elif isinstance(enemy, (list, tuple)) and len(enemy) >= 2:
+                game_enemies.append({"x": int(enemy[0]), "y": int(enemy[1])})
+
+        return {
+            "tiles": game_tiles.tolist(),
+            "player_spawn": [px, py],
+            "stairs_spawn": [sx, sy],
+            "width": width,
+            "height": height,
+            "difficulty": map_json.get("difficulty", "medium"),
+            "enemies": game_enemies,
         }
 
     def _get_maps_directory(self):
@@ -115,6 +182,11 @@ if __name__ == "__main__":
     print(result)
 
     if result["success"]:
-        map_id, file_path, map_index = generator.save_and_index_map(result["map_json"])
+        game_map = generator.convert_to_game_format(result["map_json"])
+        if game_map:
+            map_id, file_path, map_index = generator.save_and_index_map(game_map)
+            print(f"Map saved: {file_path}")
+        else:
+            print("Failed to convert map to game format")
     else:
         print("Failed to generate map")
