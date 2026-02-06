@@ -8,7 +8,7 @@ from datetime import datetime
 from mysterydungeonGPT.helpers import coordinates_to_grid
 
 class MapGenerator:
-    MODAL_URL = "https://vishnus99--mystery-dungeon-inference-chat-sglangserver-serve.modal.run" #provided by Modal upon server setup
+    MODAL_URL = "" #provided by Modal upon server setup
 
     def __init__(self):
         self.client = OpenAI(
